@@ -1,9 +1,8 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V23: OMEGA INF (千兆級絕對相位偏移) ]] --
--- 座標突破 1e15 (1000兆)，保證每次跳躍間距超過 10億 (1e9)
--- 徹底摧毀 64-bit 浮點數鎖定與全圖範圍爆破
+-- [[ VOID x AEGIS V22: QUANTUM INF DESYNC (量子無限脫軌) ]] --
+-- 終極反外掛防禦：高頻 XYZ 正負無限大座標躍遷、動能欺騙、觸碰抹除
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -13,16 +12,15 @@ local LocalPlayer = Players.LocalPlayer
 local toggleKey = Enum.KeyCode.P
 
 -- ==========================================
--- [ 核心奇點參數 (OMEGA 量子跳躍) ]
+-- [ 核心奇點參數 (量子跳躍) ]
 -- ==========================================
--- 1e15 = 1,000,000,000,000,000 (1000兆)
--- 這個數值在 Roblox 的單精度與雙精度轉換邊緣，足以粉碎任何距離計算，且不會直接導致本地端閃退
-local OMEGA_BASE = 1e15 
+-- 使用 9e8 而非 math.huge，因為真正的 math.huge 在 CFrame 運算中容易產生 NaN 導致本地客戶端閃退
+-- 9e8 (9億) 已經遠遠超出了 Roblox 所有射線檢測與地圖的極限，等同於無限大
+local INF_VAL = 9e8 
 local FORCEFIELD_RADIUS = 150 
 
 local isActive = false
 local realCFrame = nil
-local togglePhase = false -- 用於強制控制極大間距的布林值
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -31,7 +29,7 @@ local renderConnection = nil
 local heartbeatConnection = nil
 
 -- ==========================================
--- [ 異步 Hitbox 處理 (敵方擴張) ]
+-- [ 異步 Hitbox 處理 (敵方 2048 擴張) ]
 -- ==========================================
 task.spawn(function()
     while true do
@@ -58,7 +56,7 @@ end)
 -- [ GUI 建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV23GUI'
+ScreenGui.Name = 'AegisV22GUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
@@ -67,7 +65,7 @@ local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
 MainFrame.Size = UDim2.new(0, 310, 0, 310)
 MainFrame.Position = UDim2.new(0.85, -50, 0.75, -110)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 10) -- 深邃虛空色
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 0, 15) -- 偏紫黑色的量子感
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -77,14 +75,14 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 8)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(255, 0, 100)
+MainStroke.Color = Color3.fromRGB(150, 0, 255)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🌌 V23 OMEGA-INF DESYNC'
-TitleText.TextColor3 = Color3.fromRGB(255, 100, 150)
+TitleText.Text = '🌌 V22 QUANTUM OMNI-INF'
+TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
 TitleText.TextSize = 16
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -102,8 +100,8 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 0, 20)
-ToggleBtn.Text = 'ENGAGE OMEGA [P]'
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 0, 80)
+ToggleBtn.Text = 'ENGAGE QUANTUM [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -114,15 +112,15 @@ local StatsText = Instance.new('TextLabel', MainFrame)
 StatsText.Size = UDim2.new(1, 0, 0, 180)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Coord Limit: +/- 1,000,000,000,000,000\n[✓] TP Interval: > 1,000,000,000 strictly\n[✓] Absolute Y-Axis Safe Fall bypass\n[✓] Velocity NaN Spoofing\n[✓] TouchInterest Erasure\n[✓] OMEGA Desync Active'
-StatsText.TextColor3 = Color3.fromRGB(255, 180, 200)
-StatsText.TextSize = 11
+StatsText.Text = '[✓] High-Frequency +/- INF TP\n[✓] Velocity NaN Spoofing\n[✓] TouchInterest Erasure\n[✓] Absolute Hitbox Nullification\n[✓] Quantum Desync Active'
+StatsText.TextColor3 = Color3.fromRGB(220, 180, 255)
+StatsText.TextSize = 12
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Font = Enum.Font.Code
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：千兆級無限脫軌機制啟動 ]
+-- [ 引擎：量子無限脫軌機制啟動 ]
 -- ==========================================
 local function StartApotheosis()
     local char = LocalPlayer.Character
@@ -134,7 +132,7 @@ local function StartApotheosis()
     realCFrame = hrp.CFrame
     overlapParams.FilterDescendantsInstances = {char}
 
-    -- Heartbeat：伺服器與敵方外掛看到的極限撕裂畫面
+    -- Heartbeat：伺服器與敵方外掛看到的畫面
     heartbeatConnection = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -142,42 +140,27 @@ local function StartApotheosis()
 
         realCFrame = currentHrp.CFrame
         
-        -- 切換相位：這確保了每一幀的座標差距必定達到極端數值
-        togglePhase = not togglePhase
+        -- 1. 高頻率正負 INF 傳送 (Quantum Desync)
+        -- 隨機決定 X 和 Z 軸是正無限大還是負無限大
+        local signX = (math.random(1, 2) == 1) and 1 or -1
+        local signZ = (math.random(1, 2) == 1) and 1 or -1
         
-        local targetX, targetY, targetZ
+        -- Y 軸強制保持正無限大，避免觸發 workspace.FallenPartsDestroyHeight 導致秒殺
+        local quantumOffset = Vector3.new(INF_VAL * signX, INF_VAL, INF_VAL * signZ)
         
-        if togglePhase then
-            -- 相位 A：X 正極限，Y 正兩倍極限，Z 負極限
-            targetX = OMEGA_BASE
-            targetY = OMEGA_BASE * 2
-            targetZ = -OMEGA_BASE
-        else
-            -- 相位 B：X 負極限，Y 正一倍極限，Z 正極限
-            targetX = -OMEGA_BASE
-            targetY = OMEGA_BASE
-            targetZ = OMEGA_BASE
-        end
-
-        -- 相位計算結果：
-        -- X 軸差距：1e15 - (-1e15) = 2,000兆 (>> 10億)
-        -- Y 軸差距：2e15 - 1e15 = 1,000兆 (>> 10億，且全為正數避免跌落死亡)
-        -- Z 軸差距：-1e15 - 1e15 = 2,000兆 (>> 10億)
-
-        local quantumOffset = Vector3.new(targetX, targetY, targetZ)
-        
-        -- 將真實模型瞬間放逐
+        -- 將真實模型瞬間放逐到宇宙邊緣的隨機象限
         currentHrp.CFrame = CFrame.new(realCFrame.Position + quantumOffset)
         
-        -- 動能欺騙 (Velocity Spoofing)：進一步引發外掛預判演算法的崩潰
+        -- 2. 動能欺騙 (Velocity Spoofing)
         currentHrp.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
         currentHrp.AssemblyAngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
         
-        -- 自體 Hitbox 與觸碰絕對抹除
+        -- 3. 自體 Hitbox 與觸碰絕對抹除
         pcall(function()
             local myHitbox = workspace:FindFirstChild(LocalPlayer.Name) and workspace[LocalPlayer.Name]:FindFirstChild("HitboxHead")
             if myHitbox then
-                myHitbox.CFrame = CFrame.new(0, OMEGA_BASE, 0)
+                -- 把被鎖定的 Hitbox 也丟到另一個無限大的空間
+                myHitbox.CFrame = CFrame.new(0, INF_VAL, 0)
                 myHitbox.Size = Vector3.new(0, 0, 0)
                 myHitbox.CanCollide = false
                 myHitbox.CanQuery = false
@@ -186,6 +169,7 @@ local function StartApotheosis()
         end)
 
         for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do
+            -- 強制刪除觸碰感應器
             if obj:IsA("TouchTransmitter") then
                 obj:Destroy()
             elseif obj:IsA("BasePart") then
@@ -196,12 +180,12 @@ local function StartApotheosis()
             end
         end
 
-        -- 絕對湮滅力場 (保護真實座標周圍)
+        -- 4. 絕對湮滅力場 (Local Projectile Eradication)
         local threats = workspace:GetPartBoundsInRadius(realCFrame.Position, FORCEFIELD_RADIUS, overlapParams)
         for _, threat in ipairs(threats) do
             if threat:IsA("BasePart") and threat.Size.Magnitude < 150 and not threat.Anchored then
                 pcall(function()
-                    threat.CFrame = CFrame.new(OMEGA_BASE, OMEGA_BASE, OMEGA_BASE)
+                    threat.CFrame = CFrame.new(math.huge, math.huge, math.huge)
                     threat.AssemblyLinearVelocity = Vector3.zero
                     threat.CanTouch = false
                     threat.CanQuery = false
@@ -216,8 +200,9 @@ local function StartApotheosis()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp and realCFrame then
-            -- 渲染時拉回真實座標
+            -- 在渲染畫面時瞬間把你拉回真實座標，這樣你就能正常走路控制
             currentHrp.CFrame = realCFrame
+            -- 歸零動能，避免你自己被 math.huge 的速度影響
             currentHrp.AssemblyLinearVelocity = Vector3.zero
             currentHrp.AssemblyAngularVelocity = Vector3.zero
         end
@@ -253,17 +238,17 @@ local isHovering = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = 'STATUS: OMEGA DESYNC ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(255, 100, 150)
-        MainStroke.Color = Color3.fromRGB(255, 100, 150)
-        ToggleBtn.Text = 'EXIT OMEGA [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 40) or Color3.fromRGB(100, 0, 30)
+        StatusText.Text = 'STATUS: QUANTUM ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(200, 100, 255)
+        MainStroke.Color = Color3.fromRGB(200, 100, 255)
+        ToggleBtn.Text = 'EXIT QUANTUM [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 150) or Color3.fromRGB(60, 0, 120)
     else
         StatusText.Text = 'STATUS: VULNERABLE'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
         MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE OMEGA [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 30) or Color3.fromRGB(60, 0, 20)
+        ToggleBtn.Text = 'ENGAGE QUANTUM [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 0, 120) or Color3.fromRGB(40, 0, 80)
     end
 end
 
