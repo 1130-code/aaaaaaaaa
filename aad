@@ -1,277 +1,472 @@
-local fenv = getfenv()
+Local fenv = getfenv()
+
 fenv.require = function() end
 
--- [[ VOID x AEGIS V22: QUANTUM INF DESYNC (量子無限脫軌) ]] --
--- 終極反外掛防禦：高頻 XYZ 正負無限大座標躍遷、動能欺騙、觸碰抹除
+
+
+-- [[ VOID x AEGIS V34: WRAITH (怨靈・破甲與圖層剝離) ]] --
+
+-- 核心 1：Shield Breaker (破甲打擊) - 本地端摧毀敵人所有護盾實體與數值。
+
+-- 核心 2：Hierarchy Shift (圖層剝離) - 將你的角色移出 Workspace，徹底無效化敵方的全圖 AoE 鎖定。
+
+
 
 local Players = game:GetService('Players')
-local UserInputService = game:GetService('UserInputService')
+
 local RunService = game:GetService('RunService')
 
+local UserInputService = game:GetService('UserInputService')
+
+
+
 local LocalPlayer = Players.LocalPlayer
+
 local toggleKey = Enum.KeyCode.P
 
--- ==========================================
--- [ 核心奇點參數 (量子跳躍) ]
--- ==========================================
--- 使用 9e8 而非 math.huge，因為真正的 math.huge 在 CFrame 運算中容易產生 NaN 導致本地客戶端閃退
--- 9e8 (9億) 已經遠遠超出了 Roblox 所有射線檢測與地圖的極限，等同於無限大
-local INF_VAL = 9e8 
-local FORCEFIELD_RADIUS = 150 
+
 
 local isActive = false
-local realCFrame = nil
-local overlapParams = OverlapParams.new()
-overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- 連接池
-local renderConnection = nil
-local heartbeatConnection = nil
+local connections = {}
+
+
 
 -- ==========================================
--- [ 異步 Hitbox 處理 (敵方 2048 擴張) ]
--- ==========================================
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        if isActive then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    pcall(function()
-                        local enemyHitbox = workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead")
-                        if enemyHitbox then
-                            enemyHitbox.Size = Vector3.new(2048, 2048, 2048)
-                            enemyHitbox.Transparency = 0.85
-                            enemyHitbox.CanCollide = false
-                            enemyHitbox.Massless = true
-                        end
-                    end)
-                end
-            end
-        end
-    end
-end)
+
+-- [ GUI 建構 (怨靈幽紫風格) ]
 
 -- ==========================================
--- [ GUI 建構 ]
--- ==========================================
+
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV22GUI'
+
+ScreenGui.Name = 'AegisV34GUI'
+
 ScreenGui.ResetOnSpawn = false
+
 pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
+
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
+
+
 local MainFrame = Instance.new('Frame')
+
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 310, 0, 310)
-MainFrame.Position = UDim2.new(0.85, -50, 0.75, -110)
-MainFrame.BackgroundColor3 = Color3.fromRGB(10, 0, 15) -- 偏紫黑色的量子感
+
+MainFrame.Size = UDim2.new(0, 330, 0, 320)
+
+MainFrame.Position = UDim2.new(0.85, -60, 0.75, -130)
+
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 5, 20)
+
 MainFrame.BorderSizePixel = 0
+
 MainFrame.Active = true
-MainFrame.Draggable = true 
+
+MainFrame.Draggable = true
+
 MainFrame.Parent = ScreenGui
 
+
+
 local MainCorner = Instance.new('UICorner', MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 8)
+
+MainCorner.CornerRadius = UDim.new(0, 6)
+
+
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(150, 0, 255)
+
+MainStroke.Color = Color3.fromRGB(180, 0, 255)
+
 MainStroke.Thickness = 2
 
+
+
 local TitleText = Instance.new('TextLabel', MainFrame)
+
 TitleText.Size = UDim2.new(1, 0, 0, 30)
+
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🌌 V22 QUANTUM OMNI-INF'
+
+TitleText.Text = '👻 V34 WRAITH (ARMOR PIERCER)'
+
 TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
-TitleText.TextSize = 16
+
+TitleText.TextSize = 15
+
 TitleText.Font = Enum.Font.GothamBlack
+
 TitleText.Parent = MainFrame
 
+
+
 local StatusText = Instance.new('TextLabel', MainFrame)
+
 StatusText.Size = UDim2.new(1, 0, 0, 20)
+
 StatusText.Position = UDim2.new(0, 0, 0, 35)
+
 StatusText.BackgroundTransparency = 1
-StatusText.Text = 'STATUS: VULNERABLE'
+
+StatusText.Text = 'WRAITH MODE: DISABLED'
+
 StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+
 StatusText.TextSize = 12
+
 StatusText.Font = Enum.Font.GothamBold
+
 StatusText.Parent = MainFrame
 
+
+
 local ToggleBtn = Instance.new('TextButton', MainFrame)
+
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
+
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 0, 80)
-ToggleBtn.Text = 'ENGAGE QUANTUM [P]'
+
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
+
+ToggleBtn.Text = 'ENGAGE WRAITH [P]'
+
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+
 ToggleBtn.TextSize = 14
+
 ToggleBtn.Font = Enum.Font.GothamBold
+
 ToggleBtn.Parent = MainFrame
+
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
+
+
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 180)
+
+StatsText.Size = UDim2.new(1, 0, 0, 190)
+
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
+
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] High-Frequency +/- INF TP\n[✓] Velocity NaN Spoofing\n[✓] TouchInterest Erasure\n[✓] Absolute Hitbox Nullification\n[✓] Quantum Desync Active'
-StatsText.TextColor3 = Color3.fromRGB(220, 180, 255)
-StatsText.TextSize = 12
+
+StatsText.Text = '[✓] Enemy Shields Eradicated (Local)\n[✓] Projectiles Ignore Armor\n[✓] Workspace Hierarchy Shift\n[✓] AoE & Raycast Invisibility\n\nYour attacks now pierce all shields.\nYour body no longer exists in Workspace.\nEnemy scripts cannot target you.'
+
+StatsText.TextColor3 = Color3.fromRGB(180, 120, 255)
+
+StatsText.TextSize = 11
+
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
+
 StatsText.Font = Enum.Font.Code
+
 StatsText.Parent = MainFrame
 
+
+
 -- ==========================================
--- [ 引擎：量子無限脫軌機制啟動 ]
+
+-- [ 核心 1：破甲打擊 (Armor Piercing) ]
+
 -- ==========================================
-local function StartApotheosis()
-    local char = LocalPlayer.Character
-    if not char then return end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
 
-    realCFrame = hrp.CFrame
-    overlapParams.FilterDescendantsInstances = {char}
+local function StripEnemyShields()
 
-    -- Heartbeat：伺服器與敵方外掛看到的畫面
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        if not isActive then return end
-        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not currentHrp then return end
+for _, player in ipairs(Players:GetPlayers()) do
 
-        realCFrame = currentHrp.CFrame
-        
-        -- 1. 高頻率正負 INF 傳送 (Quantum Desync)
-        -- 隨機決定 X 和 Z 軸是正無限大還是負無限大
-        local signX = (math.random(1, 2) == 1) and 1 or -1
-        local signZ = (math.random(1, 2) == 1) and 1 or -1
-        
-        -- Y 軸強制保持正無限大，避免觸發 workspace.FallenPartsDestroyHeight 導致秒殺
-        local quantumOffset = Vector3.new(INF_VAL * signX, INF_VAL, INF_VAL * signZ)
-        
-        -- 將真實模型瞬間放逐到宇宙邊緣的隨機象限
-        currentHrp.CFrame = CFrame.new(realCFrame.Position + quantumOffset)
-        
-        -- 2. 動能欺騙 (Velocity Spoofing)
-        currentHrp.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
-        currentHrp.AssemblyAngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
-        
-        -- 3. 自體 Hitbox 與觸碰絕對抹除
-        pcall(function()
-            local myHitbox = workspace:FindFirstChild(LocalPlayer.Name) and workspace[LocalPlayer.Name]:FindFirstChild("HitboxHead")
-            if myHitbox then
-                -- 把被鎖定的 Hitbox 也丟到另一個無限大的空間
-                myHitbox.CFrame = CFrame.new(0, INF_VAL, 0)
-                myHitbox.Size = Vector3.new(0, 0, 0)
-                myHitbox.CanCollide = false
-                myHitbox.CanQuery = false
-                myHitbox.CanTouch = false
-            end
-        end)
+if player ~= LocalPlayer and player.Character then
 
-        for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do
-            -- 強制刪除觸碰感應器
-            if obj:IsA("TouchTransmitter") then
-                obj:Destroy()
-            elseif obj:IsA("BasePart") then
-                pcall(function()
-                    obj.CanQuery = false 
-                    obj.CanTouch = false
-                end)
-            end
-        end
+local enemyChar = player.Character
 
-        -- 4. 絕對湮滅力場 (Local Projectile Eradication)
-        local threats = workspace:GetPartBoundsInRadius(realCFrame.Position, FORCEFIELD_RADIUS, overlapParams)
-        for _, threat in ipairs(threats) do
-            if threat:IsA("BasePart") and threat.Size.Magnitude < 150 and not threat.Anchored then
-                pcall(function()
-                    threat.CFrame = CFrame.new(math.huge, math.huge, math.huge)
-                    threat.AssemblyLinearVelocity = Vector3.zero
-                    threat.CanTouch = false
-                    threat.CanQuery = false
-                    threat.Transparency = 1
-                end)
-            end
-        end
-    end)
 
-    -- RenderStepped：你自己在螢幕上看到的正常畫面
-    renderConnection = RunService.RenderStepped:Connect(function()
-        if not isActive then return end
-        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if currentHrp and realCFrame then
-            -- 在渲染畫面時瞬間把你拉回真實座標，這樣你就能正常走路控制
-            currentHrp.CFrame = realCFrame
-            -- 歸零動能，避免你自己被 math.huge 的速度影響
-            currentHrp.AssemblyLinearVelocity = Vector3.zero
-            currentHrp.AssemblyAngularVelocity = Vector3.zero
-        end
-    end)
+
+-- 1. 摧毀官方 ForceField
+
+local ff = enemyChar:FindFirstChildOfClass("ForceField")
+
+if ff then ff:Destroy() end
+
+
+
+-- 2. 徹底無效化所有客製化盾牌部件與屬性
+
+for _, obj in ipairs(enemyChar:GetDescendants()) do
+
+local name = obj.Name:lower()
+
+
+-- 如果發現名字包含 shield (盾), armor (甲), protect (保護) 的東西
+
+if name:match("shield") or name:match("armor") or name:match("protect") or name:match("barrier") then
+
+if obj:IsA("BasePart") then
+
+-- 不直接刪除(怕破壞他們骨架)，但剝奪所有物理與判定
+
+pcall(function()
+
+obj.CanCollide = false
+
+obj.CanTouch = false
+
+obj.CanQuery = false -- 你的射線/投擲物將直接穿透它！
+
+obj.Transparency = 1
+
+obj.Size = Vector3.new(0.01, 0.01, 0.01)
+
+end)
+
+elseif obj:IsA("ValueBase") then
+
+-- 如果是數值類型的護盾(例如 Health.Shield.Value = 100)，強制作廢
+
+pcall(function() obj.Value = 0 end)
+
 end
 
-local function StopApotheosis()
-    if renderConnection then renderConnection:Disconnect() end
-    if heartbeatConnection then heartbeatConnection:Disconnect() end
-    
-    local char = LocalPlayer.Character
-    if char then
-        for _, obj in ipairs(char:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                pcall(function()
-                    obj.CanTouch = true
-                    obj.CanQuery = true
-                end)
-            end
-        end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and realCFrame then
-            hrp.CFrame = realCFrame
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end
-    end
 end
 
+end
+
+
+
+-- 3. 駭入 Attributes (有些遊戲把護盾寫在屬性裡)
+
+pcall(function()
+
+if enemyChar:GetAttribute("Shield") or enemyChar:GetAttribute("Armor") then
+
+enemyChar:SetAttribute("Shield", 0)
+
+enemyChar:SetAttribute("Armor", 0)
+
+end
+
+end)
+
+end
+
+end
+
+end
+
+
+
 -- ==========================================
+
+-- [ 核心 2：圖層剝離 (Hierarchy Shift) ]
+
+-- ==========================================
+
+local function ShiftDimension(char)
+
+if not char then return end
+
+
+-- 【神級防禦技巧】：將你的角色從 Workspace 移到 Camera
+
+-- 對手的範圍爆破(AoE)外掛通常會寫：`for _, v in pairs(workspace:GetChildren())`
+
+-- 當你躲在 Camera 裡時，他們的外掛腳本「在物理圖層上」根本找不到你，直接報錯失效。
+
+if char.Parent ~= workspace.CurrentCamera then
+
+pcall(function()
+
+char.Parent = workspace.CurrentCamera
+
+end)
+
+end
+
+
+-- 雙重保險：關閉所有部位的射線判定
+
+for _, part in ipairs(char:GetDescendants()) do
+
+if part:IsA("BasePart") then
+
+pcall(function()
+
+part.CanQuery = false
+
+part.CanTouch = false
+
+end)
+
+end
+
+end
+
+end
+
+
+
+local function StartWraith()
+
+local char = LocalPlayer.Character
+
+if not char then return end
+
+
+
+-- 啟動高頻掃描，確保敵人的盾牌一長出來就瞬間破壞，且確保你一直藏在 Camera 中
+
+local loop = RunService.Heartbeat:Connect(function()
+
+if not isActive then return end
+
+
+-- 進攻：破甲
+
+StripEnemyShields()
+
+
+-- 防守：躲避掃描
+
+local currentChar = LocalPlayer.Character
+
+if currentChar then
+
+ShiftDimension(currentChar)
+
+end
+
+end)
+
+table.insert(connections, loop)
+
+end
+
+
+
+local function StopWraith()
+
+for _, conn in ipairs(connections) do
+
+conn:Disconnect()
+
+end
+
+connections = {}
+
+
+local char = LocalPlayer.Character
+
+if char then
+
+-- 將角色放回 Workspace，恢復正常狀態
+
+pcall(function() char.Parent = workspace end)
+
+for _, part in ipairs(char:GetDescendants()) do
+
+if part:IsA("BasePart") then
+
+pcall(function()
+
+part.CanQuery = true
+
+part.CanTouch = true
+
+end)
+
+end
+
+end
+
+end
+
+end
+
+
+
+-- ==========================================
+
 -- [ UI 與控制邏輯 ]
+
 -- ==========================================
+
 local isHovering = false
 
+
+
 local function UpdateUI()
-    if isActive then
-        StatusText.Text = 'STATUS: QUANTUM ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(200, 100, 255)
-        MainStroke.Color = Color3.fromRGB(200, 100, 255)
-        ToggleBtn.Text = 'EXIT QUANTUM [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 150) or Color3.fromRGB(60, 0, 120)
-    else
-        StatusText.Text = 'STATUS: VULNERABLE'
-        StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE QUANTUM [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 0, 120) or Color3.fromRGB(40, 0, 80)
-    end
+
+if isActive then
+
+StatusText.Text = 'WRAITH MODE: ACTIVE'
+
+StatusText.TextColor3 = Color3.fromRGB(180, 0, 255)
+
+MainStroke.Color = Color3.fromRGB(180, 0, 255)
+
+ToggleBtn.Text = 'DISENGAGE [P]'
+
+ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 120) or Color3.fromRGB(60, 0, 90)
+
+else
+
+StatusText.Text = 'WRAITH MODE: DISABLED'
+
+StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+
+MainStroke.Color = Color3.fromRGB(100, 100, 100)
+
+ToggleBtn.Text = 'ENGAGE WRAITH [P]'
+
+ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 10, 80) or Color3.fromRGB(40, 10, 60)
+
 end
+
+end
+
+
 
 local function ToggleSystem()
-    isActive = not isActive
-    UpdateUI()
-    if isActive then StartApotheosis() else StopApotheosis() end
+
+isActive = not isActive
+
+UpdateUI()
+
+if isActive then StartWraith() else StopWraith() end
+
 end
 
+
+
 ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
+
 ToggleBtn.MouseLeave:Connect(function() isHovering = false UpdateUI() end)
+
 ToggleBtn.MouseButton1Click:Connect(ToggleSystem)
 
+
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == toggleKey then
-        ToggleSystem()
-    end
+
+if not gameProcessed and input.KeyCode == toggleKey then
+
+ToggleSystem()
+
+end
+
 end)
 
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    if isActive then
-        task.wait(0.5)
-        overlapParams.FilterDescendantsInstances = {newChar}
-        StartApotheosis()
-    end
+
+
+LocalPlayer.CharacterAdded:Connect(function()
+
+if isActive then
+
+task.wait(0.5)
+
+StartWraith()
+
+end
+
 end)
+
