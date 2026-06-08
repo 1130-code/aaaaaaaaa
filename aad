@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    🛡️ RIOT SHIELD MASTER ULTIMATE - STANDALONE ENHANCED MODULE 🛡️
+    🛡️ RIOT SHIELD MASTER ULTIMATE - STANDALONE ENHANCED MODULE (RIVALS) 🛡️
     ========================================================================
     
     [ 控制按鍵 / Control Keybinds ]
@@ -50,11 +50,11 @@ local function GetHum(player)
 end
 
 local function GetShield()
-    -- 尋找裝備中的盾牌或背包中的盾牌
+    -- 尋找裝備中的盾牌或背包中的盾牌 (適配 Rivals 命名)
     local char = LocalPlayer.Character
     if char then
         for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot")) then
+            if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot") or tool.Name == "Shield") then
                 return tool
             end
         end
@@ -66,7 +66,7 @@ local function GetShieldFromBackpack()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot")) then
+            if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot") or tool.Name == "Shield") then
                 return tool
             end
         end
@@ -98,7 +98,7 @@ local function ToggleRiotBypass(state)
                 local hrp = GetHRP()
                 if hrp then
                     for _, v in ipairs(hrp:GetChildren()) do
-                        if v:IsA("BodyVelocity") and v.Name:lower():find("shield") then
+                        if v:IsA("BodyVelocity") and (v.Name:lower():find("shield") or v.Name:lower():find("slow")) then
                             v:Destroy()
                         end
                     end
@@ -124,7 +124,7 @@ local function ToggleRiotAbuser(state)
             local handle = shield:FindFirstChild("Handle") or shield:FindFirstChildOfClass("BasePart")
             if not handle then return end
 
-            -- 掃描附近敵人並自動使用盾牌 Hitbox 進行判定觸發
+            -- 掃描附近敵人並自動使用盾牌 Hitbox 進行判定觸發 (適配 Rivals 快速位移)
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     local targetHRP = GetHRP(plr)
@@ -132,10 +132,14 @@ local function ToggleRiotAbuser(state)
                     if targetHRP and targetHum and targetHum.Health > 0 then
                         local dist = (targetHRP.Position - myHRP.Position).Magnitude
                         if dist <= getgenv().ShieldConfig.abuserRadius then
-                            -- 利用 firetouchinterest 模擬盾牌撞擊
+                            -- 模擬觸碰：掃描對手所有大部件以 100% 觸發 Rivals 伺服器判定
                             if firetouchinterest then
-                                firetouchinterest(handle, targetHRP, 0)
-                                firetouchinterest(handle, targetHRP, 1)
+                                for _, part in ipairs(plr.Character:GetChildren()) do
+                                    if part:IsA("BasePart") then
+                                        firetouchinterest(handle, part, 0)
+                                        firetouchinterest(handle, part, 1)
+                                    end
+                                end
                             end
                         end
                     end
@@ -213,7 +217,7 @@ local function ToggleAutoEquip(state)
     end
 end
 
--- [ 5. 無視敵人盾牌 (Ignore Enemy Shields) ]
+-- [ 5. 無視敵人盾牌 (Ignore Enemy Shields - Rivals 專屬優化版) ]
 local ignoreShieldsConn
 local function ToggleIgnoreEnemyShields(state)
     getgenv().ShieldConfig.ignoreEnemyShields = state
@@ -224,17 +228,22 @@ local function ToggleIgnoreEnemyShields(state)
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     for _, tool in ipairs(plr.Character:GetChildren()) do
-                        if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot")) then
+                        -- 尋找對手裝備的任何盾牌
+                        if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot") or tool.Name == "Shield") then
                             for _, part in ipairs(tool:GetDescendants()) do
                                 if part:IsA("BasePart") then
                                     if not originalEnemyShieldProps[part] then
                                         originalEnemyShieldProps[part] = {
                                             CanCollide = part.CanCollide,
-                                            CanTouch = part.CanTouch
+                                            CanTouch = part.CanTouch,
+                                            CanQuery = part.CanQuery, -- 記錄彈道射線碰撞屬性
+                                            Transparency = part.Transparency
                                         }
                                     end
                                     part.CanCollide = false
                                     part.CanTouch = false
+                                    pcall(function() part.CanQuery = false end) -- 強制關閉射線碰撞判定（子彈直接穿透）
+                                    part.Transparency = 0.9 -- 將盾牌透明化，方便透視爆頭
                                 end
                             end
                         end
@@ -248,6 +257,8 @@ local function ToggleIgnoreEnemyShields(state)
             if part and part.Parent then
                 part.CanCollide = props.CanCollide
                 part.CanTouch = props.CanTouch
+                pcall(function() part.CanQuery = props.CanQuery end)
+                part.Transparency = props.Transparency
             end
         end
         originalEnemyShieldProps = {}
