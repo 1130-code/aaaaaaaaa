@@ -22,7 +22,6 @@ local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
-local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- ========================================================================
@@ -199,21 +198,21 @@ local function stopFastReload()
     getgenv().config.fastReloadEnabled = false
 end
 
--- [ 5. 飛刀 / 匕首 Hook 繞過 ]
-local oldFireServer
+-- [ 5. 飛刀 / 匕首 Metamethod 繞過 (最安全防崩潰方案) ]
+local oldNamecall
 local function applyDaggerBypass()
-    if oldFireServer or not hookfunction then return end
+    if oldNamecall or not hookmetamethod then return end
     pcall(function()
-        local tempEvent = Instance.new("RemoteEvent")
-        oldFireServer = hookfunction(tempEvent.FireServer, newcclosure(function(self, ...)
-            if not checkcaller() and getgenv().config.daggerBypass then
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if not checkcaller() and method == "FireServer" and getgenv().config.daggerBypass then
                 local n = self.Name:lower()
                 if (n:find("dagger") or n:find("knife") or n:find("throw") or n:find("blade")) then
                     local a = table.concat({ ... }, " "):lower()
                     if not (a:find(LocalPlayer.Name:lower()) or a:find("owner")) then return end
                 end
             end
-            return oldFireServer(self, ...)
+            return oldNamecall(self, ...)
         end))
     end)
 end
@@ -261,7 +260,6 @@ local function startModDetector()
     if staffConn then staffConn:Disconnect() end
     
     local function checkPlayer(plr)
-        -- 判斷管理組或高權限帳號，此處為基礎判斷，可自行更換 GroupID
         if plr:IsInGroup(1200769) or plr:GetRankInGroup(1200769) > 0 then
             task.spawn(function()
                 for i = 1, 3 do
@@ -395,8 +393,52 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.DisplayOrder = 999999
 
-local parentTarget = CoreGui:FindFirstChild("RobloxGui") or CoreGui
+-- 修正：使用極致安全的 GUI 父級檢測鏈
+local parentTarget
+if gethui then
+    parentTarget = gethui()
+else
+    local ok, coreGui = pcall(game.GetService, game, "CoreGui")
+    if ok and coreGui then
+        parentTarget = coreGui:FindFirstChild("RobloxGui") or coreGui
+    else
+        parentTarget = LocalPlayer:WaitForChild("PlayerGui")
+    end
+end
 ScreenGui.Parent = parentTarget
+
+-- 清理舊 GUI 的安全方法
+local function ForceCleanOldGUIs()
+    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI', 'MeowwFusionLiteGUI'}
+    pcall(function()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        for _, guiName in ipairs(guiNamesToDelete) do
+            if playerGui and playerGui:FindFirstChild(guiName) and playerGui:FindFirstChild(guiName) ~= ScreenGui then
+                playerGui[guiName]:Destroy()
+            end
+        end
+    end)
+    pcall(function()
+        local coreGui = game:GetService("CoreGui")
+        local target = coreGui:FindFirstChild("RobloxGui") or coreGui
+        for _, guiName in ipairs(guiNamesToDelete) do
+            if target and target:FindFirstChild(guiName) and target:FindFirstChild(guiName) ~= ScreenGui then
+                target[guiName]:Destroy()
+            end
+        end
+    end)
+    if gethui then
+        pcall(function()
+            local hui = gethui()
+            for _, guiName in ipairs(guiNamesToDelete) do
+                if hui and hui:FindFirstChild(guiName) and hui:FindFirstChild(guiName) ~= ScreenGui then
+                    hui[guiName]:Destroy()
+                end
+            end
+        end)
+    end
+end
+ForceCleanOldGUIs()
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -835,7 +877,10 @@ AddButton("Settings", "Unload Script (安全清理退出)", function()
     getgenv().config.ffaHoppingEnabled = false
     
     for _, c in ipairs(getgenv().AllConnections) do pcall(function() c:Disconnect() end) end
-    if oldFireServer then hookfunction(Instance.new("RemoteEvent").FireServer, oldFireServer) end
+    if oldNamecall and hookmetamethod then
+        -- 恢復原 metamethod (如果支援的話)
+        pcall(function() hookmetamethod(game, "__namecall", oldNamecall) end)
+    end
     
     pcall(function() ScreenGui:Destroy() end)
 end)
@@ -857,5 +902,3 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
     end
 end)
-
-if LocalPlayer.Character then UpdateLocalCharacterCache(LocalPlayer.Character) end
