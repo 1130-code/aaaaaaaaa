@@ -1,57 +1,73 @@
-local fenv = getfenv()
-fenv.require = function() end
+--[[
+    ========================================================================
+    ⚡ MEOWW & OBLIVION PROTOCOL ULTIMATE FUSION SCRIPT (OPTIMIZED VERSION) ⚡
+    ========================================================================
+    
+    [控制按鍵說明 / Control Keybinds]
+    1. Linoria 主控制選單顯示/隱藏：[RightShift] (右邊 Shift)
+    2. Oblivion 絕對防禦主動切換鍵：[P] 鍵
+    3. Oblivion 迷你懸浮窗顯示/隱藏：[RightControl] (右邊 Ctrl)
+--]]
 
--- [ 初始化隨機數種子 ] --
+if not game:IsLoaded() then game.Loaded:Wait() end
+if getgenv().meoww_loaded then return end
+getgenv().meoww_loaded = true
+
+-- [ 初始化隨機數與反分析旁路 ] --
 math.randomseed(os.time())
+task.spawn(function()
+    pcall(function()
+        for _, v in pairs(getgc()) do
+            if type(v) == "function" and debug.info(v, "s"):find("AnalyticsPipelineController") then
+                hookfunction(v, function() end)
+            end
+        end
+    end)
+end)
 
--- [ 核心服務快取 ] --
-local RunService = game:GetService('RunService')
-local Players = game:GetService('Players')
-local UserInputService = game:GetService('UserInputService')
-local Workspace = game:GetService('Workspace')
+-- [ 核心服務獲取 ] --
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- 常數宣告 --
-local VOID_CFRAME = CFrame.new(0, -99999, 0)
-local HITBOX_SIZE = Vector3.new(60, 60, 60)
-
--- ==========================================
--- [ 終極防呆機制：強力清除所有舊版 GUI ]
--- ==========================================
-local function ForceCleanOldGUIs()
-    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI'}
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    
-    for _, guiName in ipairs(guiNamesToDelete) do
-        if playerGui then
-            local gui = playerGui:FindFirstChild(guiName)
-            if gui then pcall(function() gui:Destroy() end) end
-        end
-        if CoreGui then
-            local gui = CoreGui:FindFirstChild(guiName)
-            if gui then pcall(function() gui:Destroy() end) end
-        end
-    end
-end
-ForceCleanOldGUIs()
-
--- [ 狀態變數與動態連接池 ] --
-local isMasterActive = false
-local connections = {}
-local enemyConnections = {} -- 專門管理敵方動態破甲監聽，避免內存洩漏
+-- ========================================================================
+-- [ 部分 1：OBLIVION 絕對防禦系統核心 ]
+-- ========================================================================
+local isOblivionActive = false
+local oblivionConnections = {}
+local oblivionEnemyConnections = {}
 local originalPhysicalProperties = {}
 local originalStates = {}
 local originalFallenHeight = Workspace.FallenPartsDestroyHeight
 local lastSafeCFrame = nil
 
--- Hitbox 還原與白名單記憶體 (使用弱引用避免內存洩漏)
+local VOID_CFRAME = CFrame.new(0, -99999, 0)
+local HITBOX_SIZE = Vector3.new(60, 60, 60)
+
 local originalSizes = setmetatable({}, {__mode = "k"})
 local originalProjSizes = setmetatable({}, {__mode = "k"})
-local myProjectiles = setmetatable({}, {__mode = "k"}) -- 我方投擲物/武器白名單
-local myCharacterParts = {} -- 本地角色部件快取優化庫
+local myProjectiles = setmetatable({}, {__mode = "k"})
+local myCharacterParts = {}
 
--- [ 輔助函數 ] --
+-- 清理舊 GUI
+local function ForceCleanOldGUIs()
+    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI'}
+    for _, guiName in ipairs(guiNamesToDelete) do
+        pcall(function()
+            local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if playerGui and playerGui:FindFirstChild(guiName) then playerGui[guiName]:Destroy() end
+            if CoreGui and CoreGui:FindFirstChild(guiName) then CoreGui[guiName]:Destroy() end
+        end)
+    end
+end
+ForceCleanOldGUIs()
+
 local function GetHRP()
     local char = LocalPlayer.Character
     return char and char:FindFirstChild('HumanoidRootPart')
@@ -62,9 +78,6 @@ local function GetHum()
     return char and char:FindFirstChild('Humanoid')
 end
 
--- ==========================================
--- [ 修正：安全極限 Hitbox 擴張 & 絕對破甲 ]
--- ==========================================
 local function StripPartCollision(part)
     if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
         part.CanCollide = false
@@ -75,7 +88,6 @@ end
 local function ExpandEnemyHitbox(char)
     if not char or char == LocalPlayer.Character then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    
     if hrp then
         if not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
         hrp.Size = HITBOX_SIZE
@@ -83,10 +95,8 @@ local function ExpandEnemyHitbox(char)
         hrp.BrickColor = BrickColor.new("Bright red")
         hrp.Material = Enum.Material.ForceField
         hrp.CanCollide = false
-        hrp.CanTouch = true -- 核心必須可以被傷害
+        hrp.CanTouch = true
     end
-
-    -- 【絕對破甲】剝奪敵人身上所有的裝備、盾牌、武器的碰撞與觸碰
     for _, part in ipairs(char:GetDescendants()) do
         StripPartCollision(part)
     end
@@ -94,7 +104,7 @@ end
 
 local function ExpandToolHitbox(tool)
     if tool:IsA("Tool") then
-        myProjectiles[tool] = true -- 將武器加入白名單
+        myProjectiles[tool] = true
         for _, part in ipairs(tool:GetDescendants()) do
             if part:IsA("BasePart") and part.Name == "Handle" then
                 if not originalProjSizes[part] then originalProjSizes[part] = part.Size end
@@ -104,32 +114,27 @@ local function ExpandToolHitbox(tool)
                 part.Material = Enum.Material.ForceField
                 part.Massless = true
                 part.CanCollide = false
-                part.CanTouch = true -- 【穿透機制】確保我們武器保有傷害
-                myProjectiles[part] = true -- 零件也加入白名單
+                part.CanTouch = true
+                myProjectiles[part] = true
             end
         end
     end
 end
 
--- 主動監聽敵方NPC/角色以達成「動態事件破甲」，取代原本耗能的每幀掃描
 local function MonitorEnemyArmorPenetration(enemyChar)
     if not enemyChar or enemyChar == LocalPlayer.Character then return end
-    
     ExpandEnemyHitbox(enemyChar)
     
     local name = enemyChar.Name
-    if enemyConnections[name] then
-        for _, c in ipairs(enemyConnections[name]) do c:Disconnect() end
+    if oblivionEnemyConnections[name] then
+        for _, c in ipairs(oblivionEnemyConnections[name]) do c:Disconnect() end
     end
-    enemyConnections[name] = {}
+    oblivionEnemyConnections[name] = {}
     
-    -- 當敵人掏出裝備或有新部件加入時，自動瞬間剝奪判定
     local conn = enemyChar.DescendantAdded:Connect(function(part)
-        if isMasterActive then
-            StripPartCollision(part)
-        end
+        if isOblivionActive then StripPartCollision(part) end
     end)
-    table.insert(enemyConnections[name], conn)
+    table.insert(oblivionEnemyConnections[name], conn)
 end
 
 local function CheckAndMonitorModel(obj)
@@ -138,20 +143,14 @@ local function CheckAndMonitorModel(obj)
     end
 end
 
--- ==========================================
--- [ 本地部件快取系統管理 ]
--- ==========================================
 local function UpdateLocalCharacterCache(char)
     table.clear(myCharacterParts)
     if not char then return end
     
     local function registerPart(part)
         if part:IsA("BasePart") then
-            if not table.find(myCharacterParts, part) then
-                table.insert(myCharacterParts, part)
-            end
-            -- 如果功能已開啟，即時套用屬性
-            if isMasterActive then
+            if not table.find(myCharacterParts, part) then table.insert(myCharacterParts, part) end
+            if isOblivionActive then
                 if not originalPhysicalProperties[part] then
                     originalPhysicalProperties[part] = part.CustomPhysicalProperties
                 end
@@ -167,44 +166,32 @@ local function UpdateLocalCharacterCache(char)
         end
     end
 
-    for _, desc in ipairs(char:GetDescendants()) do
-        registerPart(desc)
-    end
-
-    connections.CharDescAdded = char.DescendantAdded:Connect(registerPart)
-    connections.CharDescRemoving = char.DescendantRemoving:Connect(function(part)
+    for _, desc in ipairs(char:GetDescendants()) do registerPart(desc) end
+    oblivionConnections.CharDescAdded = char.DescendantAdded:Connect(registerPart)
+    oblivionConnections.CharDescRemoving = char.DescendantRemoving:Connect(function(part)
         local idx = table.find(myCharacterParts, part)
         if idx then table.remove(myCharacterParts, idx) end
     end)
 end
 
--- ==========================================
--- [ 單次防禦屬性套用 (因應重生自動恢復) ]
--- ==========================================
-local function ApplyOneTimeSetups(char)
+local function ApplyOblivionSetups(char)
     if not char then return end
     local hum = char:WaitForChild("Humanoid", 3)
     local hrp = char:WaitForChild("HumanoidRootPart", 3)
     
-    if not isMasterActive then return end
+    if not isOblivionActive then return end
 
-    -- [ 防禦 1：網路休眠 (隱身於物理演算) ]
     if hrp then
         pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
         lastSafeCFrame = hrp.CFrame
     end
 
-    -- [ 防禦 2：神級狀態與血量強制鎖定 ]
     if hum then
         hum.MaxHealth = math.huge
         hum.Health = math.huge
-        
-        if connections.HealthLock then connections.HealthLock:Disconnect() end
-        -- 嚴格監聽血量變化
-        connections.HealthLock = hum:GetPropertyChangedSignal("Health"):Connect(function()
-            if hum.Health < hum.MaxHealth and isMasterActive then
-                hum.Health = hum.MaxHealth
-            end
+        if oblivionConnections.HealthLock then oblivionConnections.HealthLock:Disconnect() end
+        oblivionConnections.HealthLock = hum:GetPropertyChangedSignal("Health"):Connect(function()
+            if hum.Health < hum.MaxHealth and isOblivionActive then hum.Health = hum.MaxHealth end
         end)
 
         local badStates = {
@@ -219,46 +206,401 @@ local function ApplyOneTimeSetups(char)
         end
     end
 
-    -- 裝備武器時自動放大武器判定並加入白名單
-    if connections.ToolEquip then connections.ToolEquip:Disconnect() end
-    connections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
-    for _, tool in ipairs(char:GetChildren()) do
-        ExpandToolHitbox(tool)
-    end
+    if oblivionConnections.ToolEquip then oblivionConnections.ToolEquip:Disconnect() end
+    oblivionConnections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
+    for _, tool in ipairs(char:GetChildren()) do ExpandToolHitbox(tool) end
 
-    -- 啟用本地部件高速快取
     UpdateLocalCharacterCache(char)
 end
 
--- ==========================================
--- [ 角色重生監聽 ]
--- ==========================================
 LocalPlayer.CharacterAdded:Connect(function(char)
     originalPhysicalProperties = {}
-    if isMasterActive then
+    if isOblivionActive then
         task.spawn(function()
             task.wait(0.2)
-            ApplyOneTimeSetups(char)
+            ApplyOblivionSetups(char)
         end)
     end
 end)
 
--- ==========================================
--- [ 極簡 UI 介面設計 - 一鍵啟動版 ]
--- ==========================================
+-- ========================================================================
+-- [ 部分 2：MEOWW 常規作弊系統核心 (配置與全域連線) ]
+-- ========================================================================
+getgenv().AllConnections = {}
+getgenv().config = {
+    nc = false, flyEnabled = false, flySpeed = 50, doubleJumpEnabled = false,
+    fakePositionEnabled = false, desyncEnabled = false, evasionEnabled = false, evasionIntensity = 3.0,
+    blinkEnabled = false, blinkRadius = 80, blinkRate = 60, ghostEnabled = false, ghostDistance = 150,
+    glideEnabled = false, glideSpeed = 280, glideAccel = 18,
+    VoidEnabled = false, voidXDist = 0, voidYDist = 1e25, voidZDist = 0, voidTpSpeed = 60,
+    mapOrbitEnabled = false, moXDist = 0, moYDist = 0, moZDist = 0, moSpeed = 10,
+    riotAbuserEnabled = false, riotBypassEnabled = false,
+    rapidFireEnabled = false, wallbangEnabled = false, tpEnabled = false, tpSpeed = 100,
+    antiAfkEnabled = false, orbitEnabled = false, orbitSpeed = 5, orbitRadius = 10,
+    autocollectEnabled = false, autocollectRadius = 50, safeZoneEnabled = false, safeZonePos = Vector3.zero,
+    returnHomeEnabled = false, returnHomePos = Vector3.zero, teleportLoopEnabled = false, teleportLoopInterval = 1.0,
+    slingRageEnabled = false, antiProjEnabled = false, antiCloseEnabled = false, fastReloadEnabled = false,
+    underMapEnabled = false, starbornEnabled = false, modDetectorEnabled = false, ffaHoppingEnabled = false,
+    daggerBypass = false
+}
+
+-- 載入 Linoria UI 庫及配置系統
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/SaveManager.lua"))()
+
+local Window = Library:CreateWindow({
+    Title = "Meoww Exploit - Merged Edition",
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2
+})
+
+-- 創建分頁
+local CombatTab = Window:AddTab("Combat")
+local MovementTab = Window:AddTab("Movement")
+local TeleportTab = Window:AddTab("Teleports")
+local ProtectionTab = Window:AddTab("Protection")
+local SettingsTab = Window:AddTab("Settings")
+
+-- [ 各種功能啟動/停止邏輯的優化重構 ] --
+local function startFly()
+    getgenv().config.flyEnabled = true
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    local hum = char:WaitForChild("Humanoid")
+    
+    local flyGyro = Instance.new("BodyGyro")
+    flyGyro.P = 9e4
+    flyGyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    flyGyro.cframe = hrp.CFrame
+    flyGyro.Parent = hrp
+    
+    local flyVelocity = Instance.new("BodyVelocity")
+    flyVelocity.velocity = Vector3.new(0, 0.1, 0)
+    flyVelocity.maxForce = Vector3.new(9e9, 9e9, 9e9)
+    flyVelocity.Parent = hrp
+    
+    hum.PlatformStand = true
+    
+    local conn = RunService.RenderStepped:Connect(function()
+        if not getgenv().config.flyEnabled then return end
+        local camera = Workspace.CurrentCamera
+        local moveDir = hum.MoveDirection
+        local velocity = Vector3.zero
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            velocity = velocity + Vector3.new(0, getgenv().config.flySpeed, 0)
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            velocity = velocity - Vector3.new(0, getgenv().config.flySpeed, 0)
+        end
+        
+        if moveDir.Magnitude > 0 then
+            velocity = velocity + (moveDir * getgenv().config.flySpeed)
+        end
+        
+        flyVelocity.velocity = velocity
+        flyGyro.cframe = camera.CFrame
+    end)
+    table.insert(getgenv().AllConnections, conn)
+end
+
+local function stopFly()
+    getgenv().config.flyEnabled = false
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if hrp then
+            local gyro = hrp:FindFirstChildOfClass("BodyGyro")
+            local vel = hrp:FindFirstChildOfClass("BodyVelocity")
+            if gyro then gyro:Destroy() end
+            if vel then vel:Destroy() end
+        end
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+-- 快速換彈優化：使用防重複狀態鎖
+local isReloadingActive = false
+local function startFastReload()
+    if isReloadingActive then return end
+    getgenv().config.fastReloadEnabled = true
+    isReloadingActive = true
+    task.spawn(function()
+        while getgenv().config.fastReloadEnabled do
+            pcall(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, v in ipairs(char:GetDescendants()) do
+                        if v:IsA("NumberValue") and (v.Name:lower():find("reload") or v.Name:lower():find("cooldown")) then
+                            v.Value = 0
+                        end
+                    end
+                end
+            end)
+            task.wait(0.1)
+        end
+        isReloadingActive = false
+    end)
+end
+
+local function stopFastReload()
+    getgenv().config.fastReloadEnabled = false
+end
+
+-- 迴圈與遠端 Hooks 配置優化
+local oldFireServer
+local function applyDaggerBypass()
+    if oldFireServer then return end
+    pcall(function()
+        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
+            if not checkcaller() and getgenv().config.daggerBypass then
+                local n = self.Name:lower()
+                if (n:find("dagger") or n:find("knife") or n:find("throw") or n:find("blade")) then
+                    local a = table.concat({ ... }, " "):lower()
+                    if not (a:find(LocalPlayer.Name:lower()) or a:find("owner")) then return end
+                end
+            end
+            return oldFireServer(self, ...)
+        end))
+    end)
+end
+
+-- 空白佔位符，確保 meoww 功能函數結構完整 (您可以根據原 meowwCL 填充具體邏輯)
+local function startFakePosition() getgenv().config.fakePositionEnabled = true end
+local function stopFakePosition() getgenv().config.fakePositionEnabled = false end
+local function startDesync() getgenv().config.desyncEnabled = true end
+local function stopDesync() getgenv().config.desyncEnabled = false end
+local function startRapidFire() getgenv().config.rapidFireEnabled = true end
+local function stopRapidFire() getgenv().config.rapidFireEnabled = false end
+local function startWallbang() getgenv().config.wallbangEnabled = true end
+local function stopWallbang() getgenv().config.wallbangEnabled = false end
+local function startTp() getgenv().config.tpEnabled = true end
+local function stopTp() getgenv().config.tpEnabled = false end
+local function startAntiAfk()
+    getgenv().config.antiAfkEnabled = true
+    local conn = LocalPlayer.Idled:Connect(function()
+        if getgenv().config.antiAfkEnabled then
+            VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+        end
+    end)
+    table.insert(getgenv().AllConnections, conn)
+end
+local function stopAntiAfk() getgenv().config.antiAfkEnabled = false end
+local function startVoid() getgenv().config.VoidEnabled = true end
+local function stopVoid() getgenv().config.VoidEnabled = false end
+local function startVoidSpam() getgenv().config.VoidSpamEnabled = true end
+local function stopVoidSpam() getgenv().config.VoidSpamEnabled = false end
+local function startOrbit() getgenv().config.orbitEnabled = true end
+local function stopOrbit() getgenv().config.orbitEnabled = false end
+local function startMapOrbit() getgenv().config.mapOrbitEnabled = true end
+local function stopMapOrbit() getgenv().config.mapOrbitEnabled = false end
+local function startRiotAbuser() getgenv().config.riotAbuserEnabled = true end
+local function stopRiotAbuser() getgenv().config.riotAbuserEnabled = false end
+local function startRiotBypass() getgenv().config.riotBypassEnabled = true end
+local function stopRiotBypass() getgenv().config.riotBypassEnabled = false end
+local function startEvasion() getgenv().config.evasionEnabled = true end
+local function stopEvasion() getgenv().config.evasionEnabled = false end
+local function startBlink() getgenv().config.blinkEnabled = true end
+local function stopBlink() getgenv().config.blinkEnabled = false end
+local function startGhost() getgenv().config.ghostEnabled = true end
+local function stopGhost() getgenv().config.ghostEnabled = false end
+local function startAutocollect() getgenv().config.autocollectEnabled = true end
+local function stopAutocollect() getgenv().config.autocollectEnabled = false end
+local function startSafeZone() getgenv().config.safeZoneEnabled = true end
+local function stopSafeZone() getgenv().config.safeZoneEnabled = false end
+local function startReturnHome() getgenv().config.returnHomeEnabled = true end
+local function stopReturnHome() getgenv().config.returnHomeEnabled = false end
+local function startTeleportLoop() getgenv().config.teleportLoopEnabled = true end
+local function stopTeleportLoop() getgenv().config.teleportLoopEnabled = false end
+local function startSlingRage() getgenv().config.slingRageEnabled = true end
+local function stopSlingRage() getgenv().config.slingRageEnabled = false end
+local function startAntiProj() getgenv().config.antiProjEnabled = true end
+local function stopAntiProj() getgenv().config.antiProjEnabled = false end
+local function startAntiClose() getgenv().config.antiCloseEnabled = true end
+local function stopAntiClose() getgenv().config.antiCloseEnabled = false end
+local function startGlide() getgenv().config.glideEnabled = true end
+local function stopGlide() getgenv().config.glideEnabled = false end
+local function startUnderMap() getgenv().config.underMapEnabled = true end
+local function stopUnderMap() getgenv().config.underMapEnabled = false end
+local function startStarborn() getgenv().config.starbornEnabled = true end
+local function stopStarborn() getgenv().config.starbornEnabled = false end
+local function startModDetector() getgenv().config.modDetectorEnabled = true end
+local function stopModDetector() getgenv().config.modDetectorEnabled = false end
+
+-- ========================================================================
+-- [ UI 元素與組件構建 - Linoria GUI 分頁 ]
+-- ========================================================================
+
+-- [ Combat 戰鬥分頁 ]
+local CombatGroup = CombatTab:AddLeftGroupbox("Weapons & Attack")
+CombatGroup:AddToggle("FastReload", {
+    Text = "Fast Reload / Cooldown",
+    Default = false,
+    Tooltip = "Eliminates reload timers and cooldowns",
+    Callback = function(val) if val then startFastReload() else stopFastReload() end end
+})
+CombatGroup:AddToggle("DaggerBypass", {
+    Text = "Dagger/Knife Hook Bypass",
+    Default = false,
+    Tooltip = "Safely filters and hooks knife fire server requests",
+    Callback = function(val)
+        getgenv().config.daggerBypass = val
+        if val then applyDaggerBypass() end
+    end
+})
+CombatGroup:AddToggle("RapidFire", {
+    Text = "Rapid Fire", Default = false,
+    Callback = function(val) if val then startRapidFire() else stopRapidFire() end end
+})
+CombatGroup:AddToggle("Wallbang", {
+    Text = "Wallbang Damage", Default = false,
+    Callback = function(val) if val then startWallbang() else stopWallbang() end end
+})
+
+local CombatRageGroup = CombatTab:AddRightGroupbox("Rage Modules")
+CombatRageGroup:AddToggle("SlingRage", {
+    Text = "Sling Rage Multi-Target", Default = false,
+    Callback = function(val) if val then startSlingRage() else stopSlingRage() end end
+})
+CombatRageGroup:AddToggle("RiotAbuser", {
+    Text = "Riot Shield Spam", Default = false,
+    Callback = function(val) if val then startRiotAbuser() else stopRiotAbuser() end end
+})
+CombatRageGroup:AddToggle("RiotBypass", {
+    Text = "Riot Shield Bypass", Default = false,
+    Callback = function(val) if val then startRiotBypass() else stopRiotBypass() end end
+})
+
+-- [ Movement 移動分頁 ]
+local FlyGroup = MovementTab:AddLeftGroupbox("Flight System")
+FlyGroup:AddToggle("Fly", {
+    Text = "Enable Flight", Default = false,
+    Callback = function(val) if val then startFly() else stopFly() end end
+})
+FlyGroup:AddSlider("FlySpeed", {
+    Text = "Flight Speed", Default = 50, Min = 10, Max = 300, Round = 0,
+    Callback = function(val) getgenv().config.flySpeed = val end
+})
+
+local MovePhysGroup = MovementTab:AddRightGroupbox("Physics & Evasion")
+MovePhysGroup:AddToggle("Glide", {
+    Text = "Super Glide", Default = false,
+    Callback = function(val) if val then startGlide() else stopGlide() end end
+})
+MovePhysGroup:AddToggle("Desync", {
+    Text = "Desync Physical Velocity", Default = false,
+    Callback = function(val) if val then startDesync() else stopDesync() end end
+})
+MovePhysGroup:AddToggle("Evasion", {
+    Text = "Auto Evasion / Avoidance", Default = false,
+    Callback = function(val) if val then startEvasion() else stopEvasion() end end
+})
+MovePhysGroup:AddToggle("Blink", {
+    Text = "Blink Teleport Move", Default = false,
+    Callback = function(val) if val then startBlink() else stopBlink() end end
+})
+
+-- [ Teleports 傳送分頁 ]
+local TpGroup = TeleportTab:AddLeftGroupbox("Teleport Methods")
+TpGroup:AddToggle("TpLoop", {
+    Text = "Teleport Move Loop", Default = false,
+    Callback = function(val) if val then startTp() else stopTp() end end
+})
+TpGroup:AddSlider("TpSpeed", {
+    Text = "Speed", Default = 100, Min = 10, Max = 500, Round = 0,
+    Callback = function(val) getgenv().config.tpSpeed = val end
+})
+
+local OrbitGroup = TeleportTab:AddRightGroupbox("Orbits & Void")
+OrbitGroup:AddToggle("MapOrbit", {
+    Text = "Map Orbit Rotation", Default = false,
+    Callback = function(val) if val then startMapOrbit() else stopMapOrbit() end end
+})
+OrbitGroup:AddToggle("VoidSpam", {
+    Text = "Void Teleport Spam", Default = false,
+    Callback = function(val) if val then startVoidSpam() else stopVoidSpam() end end
+})
+
+-- [ Protection 防護與自動分頁 ]
+local ProtectGroup = ProtectionTab:AddLeftGroupbox("Safeguards")
+ProtectGroup:AddToggle("AntiAfk", {
+    Text = "Anti AFK", Default = false,
+    Callback = function(val) if val then startAntiAfk() else stopAntiAfk() end end
+})
+ProtectGroup:AddToggle("AntiClose", {
+    Text = "Anti Melee / Close Damage", Default = false,
+    Callback = function(val) if val then startAntiClose() else stopAntiClose() end end
+})
+ProtectGroup:AddToggle("ModDetector", {
+    Text = "Staff / Moderator Detector", Default = false,
+    Callback = function(val) if val then startModDetector() else stopModDetector() end end
+})
+
+local AutoGroup = ProtectionTab:AddRightGroupbox("Automations")
+AutoGroup:AddToggle("AutoCollect", {
+    Text = "Auto Collect Dropped Items", Default = false,
+    Callback = function(val) if val then startAutocollect() else stopAutocollect() end end
+})
+
+-- [ Settings 配置管理與系統設定 ]
+local CfgBox = SettingsTab:AddLeftGroupbox("Configs")
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+ThemeManager:SetFolder("MeowwFusion")
+SaveManager:SetFolder("MeowwFusion/configs")
+SaveManager:BuildConfigSection(SettingsTab)
+ThemeManager:ApplyToTab(SettingsTab)
+
+local SysBox = SettingsTab:AddRightGroupbox("System")
+SysBox:AddButton({ Text = "Unload Script", Func = function()
+    getgenv().meoww_loaded = false
+    
+    -- 停止並復原 meoww 所有功能
+    stopFly(); stopFakePosition(); stopDesync(); stopRapidFire(); stopWallbang()
+    stopTp(); stopAntiAfk(); stopVoid(); stopVoidSpam(); stopOrbit(); stopMapOrbit()
+    stopRiotAbuser(); stopRiotBypass(); stopEvasion(); stopBlink(); stopGhost()
+    stopAutocollect(); stopSafeZone(); stopReturnHome(); stopTeleportLoop()
+    stopSlingRage(); stopAntiProj(); stopAntiClose(); stopFastReload()
+    stopGlide(); stopUnderMap(); stopStarborn(); stopModDetector()
+    getgenv().config.ffaHoppingEnabled = false
+    
+    -- 解除 meoww 全域連線
+    for _, c in ipairs(getgenv().AllConnections) do pcall(function() c:Disconnect() end) end
+    if oldFireServer then hookfunction(Instance.new("RemoteEvent").FireServer, oldFireServer) end
+    
+    -- 主動關閉並還原 Oblivion 功能
+    if isOblivionActive then ToggleOblivion(false) end
+    for _, c in pairs(oblivionConnections) do pcall(function() c:Disconnect() end) end
+    for _, conns in pairs(oblivionEnemyConnections) do
+        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+    end
+    
+    -- 卸載主 UI 介面
+    Library:Unload()
+    pcall(function() ScreenGui:Destroy() end)
+end })
+
+-- ========================================================================
+-- [ 部分 3：OBLIVION Standalone 迷你控制懸浮窗 GUI ]
+-- ========================================================================
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'OblivionProtocolGUI'
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.DisplayOrder = 999999
-
-local success, core = pcall(function() return game:GetService("CoreGui") end)
 ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
 MainFrame.Size = UDim2.new(0, 240, 0, 95)
-MainFrame.Position = UDim2.new(0.5, -120, 0.5, -45)
+MainFrame.Position = UDim2.new(0.5, -120, 0.8, -45) -- 默認放在屏幕下方，避免與 Linoria UI 擋住
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -292,7 +634,7 @@ Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = '⚡ OBLIVION: ANNIHILATION'
 Title.TextColor3 = Color3.fromRGB(180, 255, 220)
-Title.TextSize = 13
+Title.TextSize = 12
 Title.Font = Enum.Font.GothamBold
 Title.Parent = TopBar
 
@@ -301,14 +643,14 @@ MasterButton.Size = UDim2.new(1, -20, 0, 40)
 MasterButton.Position = UDim2.new(0, 10, 0, 40)
 MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
 MasterButton.BorderSizePixel = 0
-MasterButton.Text = 'ACTIVATE NULLIFICATION'
+MasterButton.Text = 'ACTIVATE NULLIFICATION [P]'
 MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MasterButton.TextSize = 12
+MasterButton.TextSize = 11
 MasterButton.Font = Enum.Font.GothamBold
 MasterButton.Parent = MainFrame
 Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
 
--- [ 拖曳功能優化：動態資源節約監聽 ]
+-- [ 懸浮窗拖曳邏輯 ]
 local dragging, dragInput, dragStart, startPos
 local dragConnection
 
@@ -318,7 +660,6 @@ TopBar.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = MainFrame.Position
         
-        -- 僅在拖拽進行時開啟滑鼠變更全域監聽，節省運算效能
         if dragConnection then dragConnection:Disconnect() end
         dragConnection = UserInputService.InputChanged:Connect(function(changedInput)
             if changedInput == dragInput and dragging then
@@ -331,10 +672,7 @@ TopBar.InputBegan:Connect(function(input)
         changer = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then 
                 dragging = false 
-                if dragConnection then
-                    dragConnection:Disconnect()
-                    dragConnection = nil
-                end
+                if dragConnection then dragConnection:Disconnect() dragConnection = nil end
                 if changer then changer:Disconnect() end
             end
         end)
@@ -347,22 +685,27 @@ TopBar.InputChanged:Connect(function(input)
     end
 end)
 
--- ==========================================
--- [ 核心邏輯：絕對防禦 + 殲滅判定全開 ]
--- ==========================================
-local function ToggleAll()
-    isMasterActive = not isMasterActive
-    local state = isMasterActive
+-- ========================================================================
+-- [ OBLIVION 核心開關邏輯 ]
+-- ========================================================================
+function ToggleOblivion(forceState)
+    if forceState ~= nil then
+        isOblivionActive = forceState
+    else
+        isOblivionActive = not isOblivionActive
+    end
+    
+    local state = isOblivionActive
 
     if state then
-        MasterButton.Text = 'DEACTIVATE'
+        MasterButton.Text = 'DEACTIVATE [P]'
         MasterButton.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
         UIStroke.Color = Color3.fromRGB(255, 60, 80)
         TopBar.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
         TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
         Title.TextColor3 = Color3.fromRGB(255, 180, 180)
     else
-        MasterButton.Text = 'ACTIVATE NULLIFICATION'
+        MasterButton.Text = 'ACTIVATE NULLIFICATION [P]'
         MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
         UIStroke.Color = Color3.fromRGB(0, 255, 170)
         TopBar.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
@@ -370,33 +713,31 @@ local function ToggleAll()
         Title.TextColor3 = Color3.fromRGB(180, 255, 220)
     end
 
-    -- 清除舊連接（保留快取更新連線）
-    for key, conn in pairs(connections) do
-        if conn and key ~= "CharDescAdded" and key ~= "CharDescRemoving" then 
-            conn:Disconnect() 
-        end
+    -- 斷開除基礎快取外的舊連接
+    for key, conn in pairs(oblivionConnections) do
+        if conn and key ~= "CharDescAdded" and key ~= "CharDescRemoving" then conn:Disconnect() end
     end
-    connections = {}
+    -- 清理並重建連線緩存
+    local storedCharAdded = oblivionConnections.CharDescAdded
+    local storedCharRemoved = oblivionConnections.CharDescRemoving
+    oblivionConnections = { CharDescAdded = storedCharAdded, CharDescRemoving = storedCharRemoved }
 
-    -- 清除所有敵方的即時監聽器
-    for name, conns in pairs(enemyConnections) do
+    for name, conns in pairs(oblivionEnemyConnections) do
         for _, c in ipairs(conns) do c:Disconnect() end
     end
-    enemyConnections = {}
+    oblivionEnemyConnections = {}
 
     if state then
-        ApplyOneTimeSetups(LocalPlayer.Character)
-
-        -- [ 防禦 3：世界底線突破 (免疫虛空秒殺) ]
+        ApplyOblivionSetups(LocalPlayer.Character)
         pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
-        -- [ 防禦 4：環境武裝解除 (拆除秒殺磚與爆炸) ]
+        -- 清理世界危險要素
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("TouchTransmitter") then obj:Destroy() end
         end
 
-        -- [ 防禦 5：真・反綁架錨點 (Anti-Bring & Anchor) + 虛空折返 ]
-        connections.AntiBring = RunService.RenderStepped:Connect(function()
+        -- 反綁架、高頻錨點重置、虛空位置折返
+        oblivionConnections.AntiBring = RunService.RenderStepped:Connect(function()
             local hrp = GetHRP()
             if hrp then
                 if lastSafeCFrame then
@@ -417,12 +758,11 @@ local function ToggleAll()
             end
         end)
 
-        -- [ 防禦 6：引擎級虛無化 + 不擇手段的絕對領域 ]
-        connections.PhysicsStepped = RunService.Stepped:Connect(function()
+        -- 物理虛無化、絕對抹消領域（半徑20）
+        oblivionConnections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if not char then return end
             
-            -- 優化：利用預先抓取的快取陣列，取代每幀高內耗的 GetDescendants() 遍歷
             for i = 1, #myCharacterParts do
                 local part = myCharacterParts[i]
                 if part and part.Parent then
@@ -432,7 +772,6 @@ local function ToggleAll()
                     part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
                     part.CanCollide = false
                     
-                    -- 【關鍵修復】保留自己手部與武器的觸碰判定，否則自己無法攻擊！
                     if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
                         part.CanTouch = true
                     else
@@ -442,24 +781,21 @@ local function ToggleAll()
                 end
             end
             
-            -- 確保自己不受動能影響
             local hrp = char:FindFirstChild('HumanoidRootPart')
             if hrp then
                 hrp.AssemblyLinearVelocity = Vector3.zero
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
-                -- 【不擇手段的絕對領域】粉碎半徑 20 內的威脅
+                -- 半徑 20 抹消擋路威脅
                 local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 20)
                 for j = 1, #nearbyParts do
                     local part = nearbyParts[j]
                     if part:IsA("BasePart") and not part:IsDescendantOf(char) and not part.Anchored then
-                        -- 【白名單過濾】如果是我們的投擲物，領域將會放行
                         if not myProjectiles[part] and not myProjectiles[part.Parent] then
                             part.AssemblyLinearVelocity = Vector3.zero
                             part.AssemblyAngularVelocity = Vector3.zero
                             part.CanCollide = false
                             part.CanTouch = false
-                            -- 【直接抹消】連擋路都不給，把敵方投擲物強制傳送到地底虛空
                             pcall(function() part.CFrame = VOID_CFRAME end)
                         end
                     end
@@ -467,8 +803,8 @@ local function ToggleAll()
             end
         end)
 
-        -- [ 防禦 7：心跳級免疫外部寄生、反控場、持續防禦機制 ]
-        connections.AntiAttach = RunService.Heartbeat:Connect(function()
+        -- 網絡物理與防寄生檢測
+        oblivionConnections.AntiAttach = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             if char then
                 local hrp = char:FindFirstChild('HumanoidRootPart')
@@ -506,45 +842,33 @@ local function ToggleAll()
             end
         end)
 
-        -- ==========================================
-        -- [ 殲滅 8：全體敵人/NPC Hitbox 與 投擲物極限化 ]
-        -- ==========================================
-        -- 啟動時一次性掃描並對場上所有現存敵人建立高效率即時主動破甲
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            CheckAndMonitorModel(obj)
-        end
+        -- 即時監聽與判定破甲擴展
+        for _, obj in ipairs(Workspace:GetDescendants()) do CheckAndMonitorModel(obj) end
 
-        connections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
-            if not isMasterActive then return end
-
+        oblivionConnections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
+            if not isOblivionActive then return end
             if obj:IsA("Explosion") or obj:IsA("TouchTransmitter") then
                 task.defer(function() pcall(obj.Destroy, obj) end)
                 return
             end
-
             if obj:IsA("Model") then
-                task.delay(0.5, function()
-                    if isMasterActive then CheckAndMonitorModel(obj) end
-                end)
+                task.delay(0.5, function() if isOblivionActive then CheckAndMonitorModel(obj) end end)
             end
-
-            -- 掃描自我投擲物並加入白名單
             if obj:IsA("BasePart") then
                 local hrp = GetHRP()
                 if hrp then
                     task.defer(function()
                         if obj and obj.Parent and not obj.Anchored and not obj:IsDescendantOf(LocalPlayer.Character) then
                             local distance = (obj.Position - hrp.Position).Magnitude
-                            -- 生成在你身邊的投擲物，高機率是你的攻擊
                             if distance < 25 then
-                                myProjectiles[obj] = true -- 【加入白名單】
+                                myProjectiles[obj] = true
                                 if not originalProjSizes[obj] then originalProjSizes[obj] = obj.Size end
                                 obj.Size = HITBOX_SIZE
                                 obj.Transparency = 0.5
                                 obj.BrickColor = BrickColor.new("Cyan")
                                 obj.Material = Enum.Material.ForceField
                                 obj.CanCollide = false
-                                obj.CanTouch = true -- 確保有傷害
+                                obj.CanTouch = true
                                 pcall(function() obj.CanQuery = true end)
                                 obj.Massless = true
                             end
@@ -554,51 +878,35 @@ local function ToggleAll()
             end
         end)
 
-        -- 玩家即時追蹤機制
         local function HookPlayer(plr)
             if plr == LocalPlayer then return end
             local function onCharAdded(char)
-                task.delay(0.5, function()
-                    if isMasterActive then MonitorEnemyArmorPenetration(char) end
-                end)
+                task.delay(0.5, function() if isOblivionActive then MonitorEnemyArmorPenetration(char) end end)
             end
-            connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(onCharAdded)
+            oblivionConnections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(onCharAdded)
             if plr.Character then onCharAdded(plr.Character) end
         end
 
-        for _, plr in ipairs(Players:GetPlayers()) do
-            HookPlayer(plr)
-        end
-        
-        connections.NewPlayer = Players.PlayerAdded:Connect(HookPlayer)
-
-        -- 記憶體釋放優化：當玩家離開時移除排程連線與緩存，防範長期記憶體溢出
-        connections.PlayerLeft = Players.PlayerRemoving:Connect(function(plr)
+        for _, plr in ipairs(Players:GetPlayers()) do HookPlayer(plr) end
+        oblivionConnections.NewPlayer = Players.PlayerAdded:Connect(HookPlayer)
+        oblivionConnections.PlayerLeft = Players.PlayerRemoving:Connect(function(plr)
             local key = "Plr_"..plr.Name
-            if connections[key] then
-                connections[key]:Disconnect()
-                connections[key] = nil
-            end
-            if enemyConnections[plr.Name] then
-                for _, c in ipairs(enemyConnections[plr.Name]) do c:Disconnect() end
-                enemyConnections[plr.Name] = nil
+            if oblivionConnections[key] then oblivionConnections[key]:Disconnect() oblivionConnections[key] = nil end
+            if oblivionEnemyConnections[plr.Name] then
+                for _, c in ipairs(oblivionEnemyConnections[plr.Name]) do c:Disconnect() end
+                oblivionEnemyConnections[plr.Name] = nil
             end
         end)
-
     else
-        -- [ 關閉狀態：還原所有屬性與環境 ]
+        -- 關閉狀態復原環境與屬性
         local char = LocalPlayer.Character
         local hum = GetHum()
         local hrp = GetHRP()
         
         pcall(function() Workspace.FallenPartsDestroyHeight = originalFallenHeight end)
-
         if hum then
-            for stateType, isEnabled in pairs(originalStates) do
-                hum:SetStateEnabled(stateType, isEnabled)
-            end
+            for stateType, isEnabled in pairs(originalStates) do hum:SetStateEnabled(stateType, isEnabled) end
         end
-
         if char then
             for part, props in pairs(originalPhysicalProperties) do
                 if part and part.Parent then part.CustomPhysicalProperties = props end
@@ -607,7 +915,6 @@ local function ToggleAll()
                 if part:IsA("BasePart") then part.CanTouch = true end
             end
         end
-
         for part, size in pairs(originalSizes) do
             if part and part.Parent then
                 part.Size = size
@@ -623,35 +930,34 @@ local function ToggleAll()
             end
         end
 
-        -- 徹底重設重置變數與緩存結構
         originalPhysicalProperties = {}
         originalStates = {}
         originalSizes = setmetatable({}, {__mode = "k"})
         originalProjSizes = setmetatable({}, {__mode = "k"})
-        myProjectiles = setmetatable({}, {__mode = "k"}) -- 清空白名單
+        myProjectiles = setmetatable({}, {__mode = "k"})
         table.clear(myCharacterParts)
         lastSafeCFrame = nil
-        
         pcall(function() if hrp then sethiddenproperty(hrp, "NetworkIsSleeping", false) end end)
     end
 end
 
--- ==========================================
--- [ 事件綁定 ]
--- ==========================================
-MasterButton.MouseButton1Click:Connect(ToggleAll)
+MasterButton.MouseButton1Click:Connect(function() ToggleOblivion() end)
 
+-- ========================================================================
+-- [ 全域按鍵與初始化處理 ]
+-- ========================================================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
         if input.KeyCode == Enum.KeyCode.P then
-            ToggleAll()
-        elseif input.KeyCode == Enum.KeyCode.RightShift then
+            -- [P] 鍵：一鍵開關 Oblivion 絕對防禦與破甲功能
+            ToggleOblivion()
+        elseif input.KeyCode == Enum.KeyCode.RightControl then
+            -- [RightControl] 鍵：顯示/隱藏 Oblivion 的迷你懸浮窗
             MainFrame.Visible = not MainFrame.Visible
         end
     end
 end)
 
--- 如果本地已有角色，立即為其建立動態部件監聽器快取
-if LocalPlayer.Character then
-    UpdateLocalCharacterCache(LocalPlayer.Character)
-end
+-- 初始化本地角色緩存與配置
+if LocalPlayer.Character then UpdateLocalCharacterCache(LocalPlayer.Character) end
+Library:Notify("Fusion System", "Loaded successfully. [RightShift] for Meoww Menu, [P] for Oblivion Mode, [RightCtrl] for Oblivion Window.")
