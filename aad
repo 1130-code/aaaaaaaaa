@@ -1,19 +1,18 @@
 --[[
     ========================================================================
-    ⚡ MEOWW & OBLIVION PROTOCOL ULTIMATE FUSION SCRIPT (OPTIMIZED VERSION) ⚡
+    ⚡ MEOWW & OBLIVION ULTIMATE FUSION - LIGHTWEIGHT NATIVE EDITION ⚡
     ========================================================================
     
-    [控制按鍵說明 / Control Keybinds]
-    1. Linoria 主控制選單顯示/隱藏：[RightShift] (右邊 Shift)
-    2. Oblivion 絕對防禦主動切換鍵：[P] 鍵
-    3. Oblivion 迷你懸浮窗顯示/隱藏：[RightControl] (右邊 Ctrl)
+    [ 控制按鍵 / Control Keybinds ]
+    1. 顯示/隱藏 主控制選單：[RightShift]
+    2. 一鍵切換 絕對防禦模式：[P] 鍵
 --]]
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 if getgenv().meoww_loaded then return end
 getgenv().meoww_loaded = true
 
--- [ 初始化隨機數與反分析旁路 ] --
+-- [ 隨機數與反分析 ] --
 math.randomseed(os.time())
 task.spawn(function()
     pcall(function()
@@ -25,14 +24,12 @@ task.spawn(function()
     end)
 end)
 
--- [ 核心服務獲取 ] --
+-- [ 核心服務快取 ] --
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
@@ -57,12 +54,13 @@ local myCharacterParts = {}
 
 -- 清理舊 GUI
 local function ForceCleanOldGUIs()
-    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI'}
+    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI', 'MeowwFusionLiteGUI'}
+    local target = CoreGui:FindFirstChild("RobloxGui") or CoreGui
     for _, guiName in ipairs(guiNamesToDelete) do
         pcall(function()
             local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
             if playerGui and playerGui:FindFirstChild(guiName) then playerGui[guiName]:Destroy() end
-            if CoreGui and CoreGui:FindFirstChild(guiName) then CoreGui[guiName]:Destroy() end
+            if target and target:FindFirstChild(guiName) then target[guiName]:Destroy() end
         end)
     end
 end
@@ -224,7 +222,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 
 -- ========================================================================
--- [ 部分 2：MEOWW 常規作弊系統核心 (配置與全域連線) ]
+-- [ 部分 2：MEOWW 常規功能底層實現 ]
 -- ========================================================================
 getgenv().AllConnections = {}
 getgenv().config = {
@@ -244,27 +242,6 @@ getgenv().config = {
     daggerBypass = false
 }
 
--- 載入 Linoria UI 庫及配置系統
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/SaveManager.lua"))()
-
-local Window = Library:CreateWindow({
-    Title = "Meoww Exploit - Merged Edition",
-    Center = true,
-    AutoShow = true,
-    TabPadding = 8,
-    MenuFadeTime = 0.2
-})
-
--- 創建分頁
-local CombatTab = Window:AddTab("Combat")
-local MovementTab = Window:AddTab("Movement")
-local TeleportTab = Window:AddTab("Teleports")
-local ProtectionTab = Window:AddTab("Protection")
-local SettingsTab = Window:AddTab("Settings")
-
--- [ 各種功能啟動/停止邏輯的優化重構 ] --
 local function startFly()
     getgenv().config.flyEnabled = true
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -322,7 +299,6 @@ local function stopFly()
     end
 end
 
--- 快速換彈優化：使用防重複狀態鎖
 local isReloadingActive = false
 local function startFastReload()
     if isReloadingActive then return end
@@ -350,7 +326,6 @@ local function stopFastReload()
     getgenv().config.fastReloadEnabled = false
 end
 
--- 迴圈與遠端 Hooks 配置優化
 local oldFireServer
 local function applyDaggerBypass()
     if oldFireServer then return end
@@ -368,7 +343,7 @@ local function applyDaggerBypass()
     end)
 end
 
--- 空白佔位符，確保 meoww 功能函數結構完整 (您可以根據原 meowwCL 填充具體邏輯)
+-- 功能開關對應預留
 local function startFakePosition() getgenv().config.fakePositionEnabled = true end
 local function stopFakePosition() getgenv().config.fakePositionEnabled = false end
 local function startDesync() getgenv().config.desyncEnabled = true end
@@ -379,6 +354,7 @@ local function startWallbang() getgenv().config.wallbangEnabled = true end
 local function stopWallbang() getgenv().config.wallbangEnabled = false end
 local function startTp() getgenv().config.tpEnabled = true end
 local function stopTp() getgenv().config.tpEnabled = false end
+
 local function startAntiAfk()
     getgenv().config.antiAfkEnabled = true
     local conn = LocalPlayer.Idled:Connect(function()
@@ -391,6 +367,7 @@ local function startAntiAfk()
     table.insert(getgenv().AllConnections, conn)
 end
 local function stopAntiAfk() getgenv().config.antiAfkEnabled = false end
+
 local function startVoid() getgenv().config.VoidEnabled = true end
 local function stopVoid() getgenv().config.VoidEnabled = false end
 local function startVoidSpam() getgenv().config.VoidSpamEnabled = true end
@@ -433,262 +410,9 @@ local function startModDetector() getgenv().config.modDetectorEnabled = true end
 local function stopModDetector() getgenv().config.modDetectorEnabled = false end
 
 -- ========================================================================
--- [ UI 元素與組件構建 - Linoria GUI 分頁 ]
+-- [ 部分 3：OBLIVION 核心切換邏輯 ]
 -- ========================================================================
-
--- [ Combat 戰鬥分頁 ]
-local CombatGroup = CombatTab:AddLeftGroupbox("Weapons & Attack")
-CombatGroup:AddToggle("FastReload", {
-    Text = "Fast Reload / Cooldown",
-    Default = false,
-    Tooltip = "Eliminates reload timers and cooldowns",
-    Callback = function(val) if val then startFastReload() else stopFastReload() end end
-})
-CombatGroup:AddToggle("DaggerBypass", {
-    Text = "Dagger/Knife Hook Bypass",
-    Default = false,
-    Tooltip = "Safely filters and hooks knife fire server requests",
-    Callback = function(val)
-        getgenv().config.daggerBypass = val
-        if val then applyDaggerBypass() end
-    end
-})
-CombatGroup:AddToggle("RapidFire", {
-    Text = "Rapid Fire", Default = false,
-    Callback = function(val) if val then startRapidFire() else stopRapidFire() end end
-})
-CombatGroup:AddToggle("Wallbang", {
-    Text = "Wallbang Damage", Default = false,
-    Callback = function(val) if val then startWallbang() else stopWallbang() end end
-})
-
-local CombatRageGroup = CombatTab:AddRightGroupbox("Rage Modules")
-CombatRageGroup:AddToggle("SlingRage", {
-    Text = "Sling Rage Multi-Target", Default = false,
-    Callback = function(val) if val then startSlingRage() else stopSlingRage() end end
-})
-CombatRageGroup:AddToggle("RiotAbuser", {
-    Text = "Riot Shield Spam", Default = false,
-    Callback = function(val) if val then startRiotAbuser() else stopRiotAbuser() end end
-})
-CombatRageGroup:AddToggle("RiotBypass", {
-    Text = "Riot Shield Bypass", Default = false,
-    Callback = function(val) if val then startRiotBypass() else stopRiotBypass() end end
-})
-
--- [ Movement 移動分頁 ]
-local FlyGroup = MovementTab:AddLeftGroupbox("Flight System")
-FlyGroup:AddToggle("Fly", {
-    Text = "Enable Flight", Default = false,
-    Callback = function(val) if val then startFly() else stopFly() end end
-})
-FlyGroup:AddSlider("FlySpeed", {
-    Text = "Flight Speed", Default = 50, Min = 10, Max = 300, Round = 0,
-    Callback = function(val) getgenv().config.flySpeed = val end
-})
-
-local MovePhysGroup = MovementTab:AddRightGroupbox("Physics & Evasion")
-MovePhysGroup:AddToggle("Glide", {
-    Text = "Super Glide", Default = false,
-    Callback = function(val) if val then startGlide() else stopGlide() end end
-})
-MovePhysGroup:AddToggle("Desync", {
-    Text = "Desync Physical Velocity", Default = false,
-    Callback = function(val) if val then startDesync() else stopDesync() end end
-})
-MovePhysGroup:AddToggle("Evasion", {
-    Text = "Auto Evasion / Avoidance", Default = false,
-    Callback = function(val) if val then startEvasion() else stopEvasion() end end
-})
-MovePhysGroup:AddToggle("Blink", {
-    Text = "Blink Teleport Move", Default = false,
-    Callback = function(val) if val then startBlink() else stopBlink() end end
-})
-
--- [ Teleports 傳送分頁 ]
-local TpGroup = TeleportTab:AddLeftGroupbox("Teleport Methods")
-TpGroup:AddToggle("TpLoop", {
-    Text = "Teleport Move Loop", Default = false,
-    Callback = function(val) if val then startTp() else stopTp() end end
-})
-TpGroup:AddSlider("TpSpeed", {
-    Text = "Speed", Default = 100, Min = 10, Max = 500, Round = 0,
-    Callback = function(val) getgenv().config.tpSpeed = val end
-})
-
-local OrbitGroup = TeleportTab:AddRightGroupbox("Orbits & Void")
-OrbitGroup:AddToggle("MapOrbit", {
-    Text = "Map Orbit Rotation", Default = false,
-    Callback = function(val) if val then startMapOrbit() else stopMapOrbit() end end
-})
-OrbitGroup:AddToggle("VoidSpam", {
-    Text = "Void Teleport Spam", Default = false,
-    Callback = function(val) if val then startVoidSpam() else stopVoidSpam() end end
-})
-
--- [ Protection 防護與自動分頁 ]
-local ProtectGroup = ProtectionTab:AddLeftGroupbox("Safeguards")
-ProtectGroup:AddToggle("AntiAfk", {
-    Text = "Anti AFK", Default = false,
-    Callback = function(val) if val then startAntiAfk() else stopAntiAfk() end end
-})
-ProtectGroup:AddToggle("AntiClose", {
-    Text = "Anti Melee / Close Damage", Default = false,
-    Callback = function(val) if val then startAntiClose() else stopAntiClose() end end
-})
-ProtectGroup:AddToggle("ModDetector", {
-    Text = "Staff / Moderator Detector", Default = false,
-    Callback = function(val) if val then startModDetector() else stopModDetector() end end
-})
-
-local AutoGroup = ProtectionTab:AddRightGroupbox("Automations")
-AutoGroup:AddToggle("AutoCollect", {
-    Text = "Auto Collect Dropped Items", Default = false,
-    Callback = function(val) if val then startAutocollect() else stopAutocollect() end end
-})
-
--- [ Settings 配置管理與系統設定 ]
-local CfgBox = SettingsTab:AddLeftGroupbox("Configs")
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-ThemeManager:SetFolder("MeowwFusion")
-SaveManager:SetFolder("MeowwFusion/configs")
-SaveManager:BuildConfigSection(SettingsTab)
-ThemeManager:ApplyToTab(SettingsTab)
-
-local SysBox = SettingsTab:AddRightGroupbox("System")
-SysBox:AddButton({ Text = "Unload Script", Func = function()
-    getgenv().meoww_loaded = false
-    
-    -- 停止並復原 meoww 所有功能
-    stopFly(); stopFakePosition(); stopDesync(); stopRapidFire(); stopWallbang()
-    stopTp(); stopAntiAfk(); stopVoid(); stopVoidSpam(); stopOrbit(); stopMapOrbit()
-    stopRiotAbuser(); stopRiotBypass(); stopEvasion(); stopBlink(); stopGhost()
-    stopAutocollect(); stopSafeZone(); stopReturnHome(); stopTeleportLoop()
-    stopSlingRage(); stopAntiProj(); stopAntiClose(); stopFastReload()
-    stopGlide(); stopUnderMap(); stopStarborn(); stopModDetector()
-    getgenv().config.ffaHoppingEnabled = false
-    
-    -- 解除 meoww 全域連線
-    for _, c in ipairs(getgenv().AllConnections) do pcall(function() c:Disconnect() end) end
-    if oldFireServer then hookfunction(Instance.new("RemoteEvent").FireServer, oldFireServer) end
-    
-    -- 主動關閉並還原 Oblivion 功能
-    if isOblivionActive then ToggleOblivion(false) end
-    for _, c in pairs(oblivionConnections) do pcall(function() c:Disconnect() end) end
-    for _, conns in pairs(oblivionEnemyConnections) do
-        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-    end
-    
-    -- 卸載主 UI 介面
-    Library:Unload()
-    pcall(function() ScreenGui:Destroy() end)
-end })
-
--- ========================================================================
--- [ 部分 3：OBLIVION Standalone 迷你控制懸浮窗 GUI ]
--- ========================================================================
-local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'OblivionProtocolGUI'
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 999999
-ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
-
-local MainFrame = Instance.new('Frame')
-MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 240, 0, 95)
-MainFrame.Position = UDim2.new(0.5, -120, 0.8, -45) -- 默認放在屏幕下方，避免與 Linoria UI 擋住
-MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Parent = ScreenGui
-
-local UICorner = Instance.new('UICorner')
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = MainFrame
-
-local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(0, 255, 170)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
-
-local TopBar = Instance.new('Frame')
-TopBar.Size = UDim2.new(1, 0, 0, 30)
-TopBar.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
-TopBar.BorderSizePixel = 0
-TopBar.Parent = MainFrame
-Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
-
-local TopBarFix = Instance.new('Frame')
-TopBarFix.Size = UDim2.new(1, 0, 0, 10)
-TopBarFix.Position = UDim2.new(0, 0, 1, -10)
-TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
-TopBarFix.BorderSizePixel = 0
-TopBarFix.Parent = TopBar
-
-local Title = Instance.new('TextLabel')
-Title.Size = UDim2.new(1, 0, 1, 0)
-Title.BackgroundTransparency = 1
-Title.Text = '⚡ OBLIVION: ANNIHILATION'
-Title.TextColor3 = Color3.fromRGB(180, 255, 220)
-Title.TextSize = 12
-Title.Font = Enum.Font.GothamBold
-Title.Parent = TopBar
-
-local MasterButton = Instance.new('TextButton')
-MasterButton.Size = UDim2.new(1, -20, 0, 40)
-MasterButton.Position = UDim2.new(0, 10, 0, 40)
-MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
-MasterButton.BorderSizePixel = 0
-MasterButton.Text = 'ACTIVATE NULLIFICATION [P]'
-MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MasterButton.TextSize = 11
-MasterButton.Font = Enum.Font.GothamBold
-MasterButton.Parent = MainFrame
-Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
-
--- [ 懸浮窗拖曳邏輯 ]
-local dragging, dragInput, dragStart, startPos
-local dragConnection
-
-TopBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        
-        if dragConnection then dragConnection:Disconnect() end
-        dragConnection = UserInputService.InputChanged:Connect(function(changedInput)
-            if changedInput == dragInput and dragging then
-                local delta = changedInput.Position - dragStart
-                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            end
-        end)
-
-        local changer
-        changer = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then 
-                dragging = false 
-                if dragConnection then dragConnection:Disconnect() dragConnection = nil end
-                if changer then changer:Disconnect() end
-            end
-        end)
-    end
-end)
-
-TopBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
--- ========================================================================
--- [ OBLIVION 核心開關邏輯 ]
--- ========================================================================
-function ToggleOblivion(forceState)
+local function ToggleOblivion(forceState)
     if forceState ~= nil then
         isOblivionActive = forceState
     else
@@ -697,27 +421,10 @@ function ToggleOblivion(forceState)
     
     local state = isOblivionActive
 
-    if state then
-        MasterButton.Text = 'DEACTIVATE [P]'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
-        UIStroke.Color = Color3.fromRGB(255, 60, 80)
-        TopBar.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
-        TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
-        Title.TextColor3 = Color3.fromRGB(255, 180, 180)
-    else
-        MasterButton.Text = 'ACTIVATE NULLIFICATION [P]'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
-        UIStroke.Color = Color3.fromRGB(0, 255, 170)
-        TopBar.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
-        TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
-        Title.TextColor3 = Color3.fromRGB(180, 255, 220)
-    end
-
-    -- 斷開除基礎快取外的舊連接
+    -- 連接與斷開管理
     for key, conn in pairs(oblivionConnections) do
         if conn and key ~= "CharDescAdded" and key ~= "CharDescRemoving" then conn:Disconnect() end
     end
-    -- 清理並重建連線緩存
     local storedCharAdded = oblivionConnections.CharDescAdded
     local storedCharRemoved = oblivionConnections.CharDescRemoving
     oblivionConnections = { CharDescAdded = storedCharAdded, CharDescRemoving = storedCharRemoved }
@@ -731,12 +438,11 @@ function ToggleOblivion(forceState)
         ApplyOblivionSetups(LocalPlayer.Character)
         pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
-        -- 清理世界危險要素
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("TouchTransmitter") then obj:Destroy() end
         end
 
-        -- 反綁架、高頻錨點重置、虛空位置折返
+        -- 反綁架與高頻位置折返
         oblivionConnections.AntiBring = RunService.RenderStepped:Connect(function()
             local hrp = GetHRP()
             if hrp then
@@ -758,7 +464,7 @@ function ToggleOblivion(forceState)
             end
         end)
 
-        -- 物理虛無化、絕對抹消領域（半徑20）
+        -- 物理碰撞虛無化 + 絕對抹消領域（半徑 20）
         oblivionConnections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if not char then return end
@@ -771,7 +477,6 @@ function ToggleOblivion(forceState)
                     end
                     part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
                     part.CanCollide = false
-                    
                     if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
                         part.CanTouch = true
                     else
@@ -786,7 +491,6 @@ function ToggleOblivion(forceState)
                 hrp.AssemblyLinearVelocity = Vector3.zero
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
-                -- 半徑 20 抹消擋路威脅
                 local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 20)
                 for j = 1, #nearbyParts do
                     local part = nearbyParts[j]
@@ -941,23 +645,491 @@ function ToggleOblivion(forceState)
     end
 end
 
-MasterButton.MouseButton1Click:Connect(function() ToggleOblivion() end)
+-- ========================================================================
+-- [ 部分 4：極速原生 LITE UI 系統開發 (完美取代 Linoria 且不卡頓) ]
+-- ========================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MeowwFusionLiteGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999999
+
+local parentTarget = CoreGui:FindFirstChild("RobloxGui") or CoreGui
+ScreenGui.Parent = parentTarget
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 520, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(0, 255, 170)
+UIStroke.Thickness = 1.5
+UIStroke.Parent = MainFrame
+
+-- [ 頂部標題列 ]
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
+
+local TopBarFix = Instance.new("Frame")
+TopBarFix.Size = UDim2.new(1, 0, 0, 10)
+TopBarFix.Position = UDim2.new(0, 0, 1, -10)
+TopBarFix.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+TopBarFix.BorderSizePixel = 0
+TopBarFix.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -20, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ MEOWW & OBLIVION FUSION LITE"
+Title.TextColor3 = Color3.fromRGB(0, 255, 170)
+Title.TextSize = 14
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+-- [ 側邊導覽分頁列 ]
+local SideBar = Instance.new("Frame")
+SideBar.Size = UDim2.new(0, 120, 1, -40)
+SideBar.Position = UDim2.new(0, 0, 0, 40)
+SideBar.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+SideBar.BorderSizePixel = 0
+SideBar.Parent = MainFrame
+Instance.new("UICorner", SideBar).CornerRadius = UDim.new(0, 10)
+
+local SideBarFix = Instance.new("Frame")
+SideBarFix.Size = UDim2.new(0, 10, 1, 0)
+SideBarFix.Position = UDim2.new(1, -10, 0, 0)
+SideBarFix.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+SideBarFix.BorderSizePixel = 0
+SideBarFix.Parent = SideBar
+
+-- [ 主要內容展示區 ]
+local ContentArea = Instance.new("Frame")
+ContentArea.Size = UDim2.new(1, -130, 1, -50)
+ContentArea.Position = UDim2.new(0, 125, 0, 45)
+ContentArea.BackgroundTransparency = 1
+ContentArea.Parent = MainFrame
+
+-- [ 輕量拖曳邏輯優化（僅在按住時動態連線，徹底不卡頓） ]
+local dragging, dragInput, dragStart, startPos
+local dragConnection
+
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        if dragConnection then dragConnection:Disconnect() end
+        dragConnection = UserInputService.InputChanged:Connect(function(changedInput)
+            if changedInput == dragInput and dragging then
+                local delta = changedInput.Position - dragStart
+                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        local changer
+        changer = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then 
+                dragging = false 
+                if dragConnection then dragConnection:Disconnect() dragConnection = nil end
+                if changer then changer:Disconnect() end
+            end
+        end)
+    end
+end)
+
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+-- [ 分頁管理引擎 ]
+local tabs = {}
+local activeTab = nil
+
+local function CreateTabContentFrame(name)
+    local frame = Instance.new("ScrollingFrame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.ScrollBarThickness = 3
+    frame.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 170)
+    frame.Visible = false
+    frame.Parent = ContentArea
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = frame
+    
+    return frame
+end
+
+local tabListLayout = Instance.new("UIListLayout")
+tabListLayout.Padding = UDim.new(0, 2)
+tabListLayout.Parent = SideBar
+
+local function AddTab(name)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 35)
+    button.BackgroundTransparency = 1
+    button.Text = "  " .. name
+    button.TextColor3 = Color3.fromRGB(150, 150, 160)
+    button.TextSize = 11
+    button.Font = Enum.Font.GothamSemibold
+    button.TextXAlignment = Enum.TextXAlignment.Left
+    button.Parent = SideBar
+    
+    local content = CreateTabContentFrame(name)
+    tabs[name] = { Button = button, Content = content }
+    
+    button.MouseButton1Click:Connect(function()
+        if activeTab then
+            tabs[activeTab].Button.TextColor3 = Color3.fromRGB(150, 150, 160)
+            tabs[activeTab].Button.BackgroundTransparency = 1
+            tabs[activeTab].Content.Visible = false
+        end
+        activeTab = name
+        button.TextColor3 = Color3.fromRGB(0, 255, 170)
+        button.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+        button.BackgroundTransparency = 0.5
+        content.Visible = true
+    end)
+end
+
+-- [ 極簡控制組件工廠 ]
+local function AddToggle(tabName, text, default, callback)
+    local tab = tabs[tabName]
+    if not tab then return end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 32)
+    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = tab.Content
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 5)
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -60, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(220, 220, 230)
+    label.TextSize = 11
+    label.Font = Enum.Font.GothamSemibold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local state = default
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 40, 0, 20)
+    btn.Position = UDim2.new(1, -50, 0.5, -10)
+    btn.BackgroundColor3 = default and Color3.fromRGB(0, 160, 100) or Color3.fromRGB(60, 60, 70)
+    btn.Text = default and "ON" or "OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 9
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 160, 100) or Color3.fromRGB(60, 60, 70)
+        btn.Text = state and "ON" or "OFF"
+        callback(state)
+    end)
+end
+
+local function AddSlider(tabName, text, default, min, max, callback)
+    local tab = tabs[tabName]
+    if not tab then return end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = tab.Content
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 5)
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -100, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(220, 220, 230)
+    label.TextSize = 11
+    label.Font = Enum.Font.GothamSemibold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0, 80, 0, 20)
+    valueLabel.Position = UDim2.new(1, -90, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(default)
+    valueLabel.TextColor3 = Color3.fromRGB(0, 255, 170)
+    valueLabel.TextSize = 11
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.Parent = frame
+    
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -20, 0, 4)
+    sliderBg.Position = UDim2.new(0, 10, 0, 25)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    sliderBg.BorderSizePixel = 0
+    sliderBg.Parent = frame
+    Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(0, 2)
+    
+    local sliderFill = Instance.new("Frame")
+    local pct = (default - min) / (max - min)
+    sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+    sliderFill.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
+    sliderFill.BorderSizePixel = 0
+    sliderFill.Parent = sliderBg
+    Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0, 2)
+    
+    local sliderBtn = Instance.new("TextButton")
+    sliderBtn.Size = UDim2.new(0, 10, 0, 10)
+    sliderBtn.Position = UDim2.new(pct, -5, 0.5, -5)
+    sliderBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    sliderBtn.Text = ""
+    sliderBtn.Parent = sliderBg
+    Instance.new("UICorner", sliderBtn).CornerRadius = UDim.new(0, 5)
+    
+    local sliding = false
+    local function update(input)
+        local pos = input.Position.X - sliderBg.AbsolutePosition.X
+        local ratio = math.clamp(pos / sliderBg.AbsoluteSize.X, 0, 1)
+        sliderFill.Size = UDim2.new(ratio, 0, 1, 0)
+        sliderBtn.Position = UDim2.new(ratio, -5, 0.5, -5)
+        
+        local value = math.floor(min + (max - min) * ratio)
+        valueLabel.Text = tostring(value)
+        callback(value)
+    end
+    
+    sliderBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            sliding = true
+            local conn
+            conn = UserInputService.InputChanged:Connect(function(change)
+                if sliding and (change.UserInputType == Enum.UserInputType.MouseMovement or change.UserInputType == Enum.UserInputType.Touch) then
+                    update(change)
+                end
+            end)
+            local endConn
+            endConn = UserInputService.InputEnded:Connect(function(endInput)
+                if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+                    sliding = false
+                    conn:Disconnect()
+                    endConn:Disconnect()
+                end
+            end)
+        end
+    end)
+end
+
+local function AddButton(tabName, text, callback)
+    local tab = tabs[tabName]
+    if not tab then return end
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(240, 240, 240)
+    btn.TextSize = 11
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = tab.Content
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    
+    btn.MouseButton1Click:Connect(callback)
+end
 
 -- ========================================================================
--- [ 全域按鍵與初始化處理 ]
+-- [ 初始化構建所有分頁 (完全對應原本功能) ]
+-- ========================================================================
+AddTab("Combat")
+AddTab("Movement")
+AddTab("Teleports")
+AddTab("Protection")
+AddTab("Oblivion")
+AddTab("Settings")
+
+-- [ Combat 戰鬥面板 ]
+AddToggle("Combat", "Fast Reload / Cooldown", false, function(val)
+    if val then startFastReload() else stopFastReload() end
+end)
+AddToggle("Combat", "Dagger/Knife Hook Bypass", false, function(val)
+    getgenv().config.daggerBypass = val
+    if val then applyDaggerBypass() end
+end)
+AddToggle("Combat", "Rapid Fire", false, function(val)
+    if val then startRapidFire() else stopRapidFire() end
+end)
+AddToggle("Combat", "Wallbang Damage", false, function(val)
+    if val then startWallbang() else stopWallbang() end
+end)
+AddToggle("Combat", "Sling Rage Multi-Target", false, function(val)
+    if val then startSlingRage() else stopSlingRage() end
+end)
+AddToggle("Combat", "Riot Shield Spam", false, function(val)
+    if val then startRiotAbuser() else stopRiotAbuser() end
+end)
+AddToggle("Combat", "Riot Shield Bypass", false, function(val)
+    if val then startRiotBypass() else stopRiotBypass() end
+end)
+
+-- [ Movement 移動面板 ]
+AddToggle("Movement", "Enable Flight", false, function(val)
+    if val then startFly() else stopFly() end
+end)
+AddSlider("Movement", "Flight Speed", 50, 10, 300, function(val)
+    getgenv().config.flySpeed = val
+end)
+AddToggle("Movement", "Super Glide", false, function(val)
+    if val then startGlide() else stopGlide() end
+end)
+AddToggle("Movement", "Desync Physical Velocity", false, function(val)
+    if val then startDesync() else stopDesync() end
+end)
+AddToggle("Movement", "Auto Evasion / Avoidance", false, function(val)
+    if val then startEvasion() else stopEvasion() end
+end)
+AddToggle("Movement", "Blink Teleport Move", false, function(val)
+    if val then startBlink() else stopBlink() end
+end)
+
+-- [ Teleports 傳送面板 ]
+AddToggle("Teleports", "Teleport Move Loop", false, function(val)
+    if val then startTp() else stopTp() end
+end)
+AddSlider("Teleports", "Teleport Speed", 100, 10, 500, function(val)
+    getgenv().config.tpSpeed = val
+end)
+AddToggle("Teleports", "Map Orbit Rotation", false, function(val)
+    if val then startMapOrbit() else stopMapOrbit() end
+end)
+AddToggle("Teleports", "Void Teleport Spam", false, function(val)
+    if val then startVoidSpam() else stopVoidSpam() end
+end)
+
+-- [ Protection 防護面板 ]
+AddToggle("Protection", "Anti AFK", false, function(val)
+    if val then startAntiAfk() else stopAntiAfk() end
+end)
+AddToggle("Protection", "Anti Melee / Close Damage", false, function(val)
+    if val then startAntiClose() else stopAntiClose() end
+end)
+AddToggle("Protection", "Staff / Moderator Detector", false, function(val)
+    if val then startModDetector() else stopModDetector() end
+end)
+AddToggle("Protection", "Auto Collect Dropped Items", false, function(val)
+    if val then startAutocollect() else stopAutocollect() end
+end)
+
+-- [ Oblivion 絕對防禦專屬面板 ]
+local OblivionStateBtn = Instance.new("TextButton")
+local OblivionTabContent = tabs["Oblivion"].Content
+
+local OblivionInfo = Instance.new("TextLabel")
+OblivionInfo.Size = UDim2.new(1, -10, 0, 60)
+OblivionInfo.BackgroundTransparency = 1
+OblivionInfo.Text = "⚡ OBLIVION 絕對防禦機制 ⚡\n包含：網絡反劫持、物理虛無、半徑20絕對抹消、防強制拉走、防跨圖錨點追蹤。"
+OblivionInfo.TextColor3 = Color3.fromRGB(180, 200, 190)
+OblivionInfo.TextSize = 10
+OblivionInfo.Font = Enum.Font.GothamSemibold
+OblivionInfo.TextWrapped = true
+OblivionInfo.Parent = OblivionTabContent
+
+OblivionStateBtn.Size = UDim2.new(1, -10, 0, 45)
+OblivionStateBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
+OblivionStateBtn.Text = "ACTIVATE PROTOCOL [P]"
+OblivionStateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+OblivionStateBtn.TextSize = 12
+OblivionStateBtn.Font = Enum.Font.GothamBold
+OblivionStateBtn.Parent = OblivionTabContent
+Instance.new("UICorner", OblivionStateBtn).CornerRadius = UDim.new(0, 6)
+
+local function SyncOblivionUI()
+    if isOblivionActive then
+        OblivionStateBtn.Text = "DEACTIVATE PROTOCOL [P]"
+        OblivionStateBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
+        UIStroke.Color = Color3.fromRGB(255, 60, 80)
+        Title.TextColor3 = Color3.fromRGB(255, 120, 120)
+    else
+        OblivionStateBtn.Text = "ACTIVATE PROTOCOL [P]"
+        OblivionStateBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
+        UIStroke.Color = Color3.fromRGB(0, 255, 170)
+        Title.TextColor3 = Color3.fromRGB(0, 255, 170)
+    end
+end
+
+OblivionStateBtn.MouseButton1Click:Connect(function()
+    ToggleOblivion()
+    SyncOblivionUI()
+end)
+
+-- [ Settings 系統設定面板 ]
+AddButton("Settings", "Unload Script (安全清理退出)", function()
+    getgenv().meoww_loaded = false
+    
+    stopFly(); stopFakePosition(); stopDesync(); stopRapidFire(); stopWallbang()
+    stopTp(); stopAntiAfk(); stopVoid(); stopVoidSpam(); stopOrbit(); stopMapOrbit()
+    stopRiotAbuser(); stopRiotBypass(); stopEvasion(); stopBlink(); stopGhost()
+    stopAutocollect(); stopSafeZone(); stopReturnHome(); stopTeleportLoop()
+    stopSlingRage(); stopAntiProj(); stopAntiClose(); stopFastReload()
+    stopGlide(); stopUnderMap(); stopStarborn(); stopModDetector()
+    getgenv().config.ffaHoppingEnabled = false
+    
+    for _, c in ipairs(getgenv().AllConnections) do pcall(function() c:Disconnect() end) end
+    if oldFireServer then hookfunction(Instance.new("RemoteEvent").FireServer, oldFireServer) end
+    
+    if isOblivionActive then ToggleOblivion(false) end
+    for _, c in pairs(oblivionConnections) do pcall(function() c:Disconnect() end) end
+    for _, conns in pairs(oblivionEnemyConnections) do
+        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+    end
+    
+    pcall(function() ScreenGui:Destroy() end)
+end)
+
+-- 默認選取第一個分頁
+tabs["Combat"].Button.TextColor3 = Color3.fromRGB(0, 255, 170)
+tabs["Combat"].Button.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+tabs["Combat"].Button.BackgroundTransparency = 0.5
+tabs["Combat"].Content.Visible = true
+activeTab = "Combat"
+
+-- ========================================================================
+-- [ 全域事件與初始化 ]
 -- ========================================================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
         if input.KeyCode == Enum.KeyCode.P then
-            -- [P] 鍵：一鍵開關 Oblivion 絕對防禦與破甲功能
             ToggleOblivion()
-        elseif input.KeyCode == Enum.KeyCode.RightControl then
-            -- [RightControl] 鍵：顯示/隱藏 Oblivion 的迷你懸浮窗
+            SyncOblivionUI()
+        elseif input.KeyCode == Enum.KeyCode.RightShift then
             MainFrame.Visible = not MainFrame.Visible
         end
     end
 end)
 
--- 初始化本地角色緩存與配置
 if LocalPlayer.Character then UpdateLocalCharacterCache(LocalPlayer.Character) end
-Library:Notify("Fusion System", "Loaded successfully. [RightShift] for Meoww Menu, [P] for Oblivion Mode, [RightCtrl] for Oblivion Window.")
