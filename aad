@@ -30,11 +30,13 @@ getgenv().ShieldConfig = {
     giantSize = 25,
     autoEquipEnabled = false,
     autoEquipHealth = 70,
-    customWalkSpeed = 16
+    customWalkSpeed = 16,
+    ignoreEnemyShields = false
 }
 
 -- 儲存盾牌原始屬性以供還原
 local originalShieldProps = setmetatable({}, {__mode = "k"})
+local originalEnemyShieldProps = setmetatable({}, {__mode = "k"})
 
 -- [ 基礎輔助函數 ]
 local function GetHRP(player)
@@ -208,6 +210,47 @@ local function ToggleAutoEquip(state)
             end
         end)
         table.insert(getgenv().ShieldConnections, autoEquipConn)
+    end
+end
+
+-- [ 5. 無視敵人盾牌 (Ignore Enemy Shields) ]
+local ignoreShieldsConn
+local function ToggleIgnoreEnemyShields(state)
+    getgenv().ShieldConfig.ignoreEnemyShields = state
+    if ignoreShieldsConn then ignoreShieldsConn:Disconnect() ignoreShieldsConn = nil end
+
+    if state then
+        ignoreShieldsConn = RunService.Heartbeat:Connect(function()
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    for _, tool in ipairs(plr.Character:GetChildren()) do
+                        if tool:IsA("Tool") and (tool.Name:lower():find("shield") or tool.Name:lower():find("riot")) then
+                            for _, part in ipairs(tool:GetDescendants()) do
+                                if part:IsA("BasePart") then
+                                    if not originalEnemyShieldProps[part] then
+                                        originalEnemyShieldProps[part] = {
+                                            CanCollide = part.CanCollide,
+                                            CanTouch = part.CanTouch
+                                        }
+                                    end
+                                    part.CanCollide = false
+                                    part.CanTouch = false
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        table.insert(getgenv().ShieldConnections, ignoreShieldsConn)
+    else
+        for part, props in pairs(originalEnemyShieldProps) do
+            if part and part.Parent then
+                part.CanCollide = props.CanCollide
+                part.CanTouch = props.CanTouch
+            end
+        end
+        originalEnemyShieldProps = {}
     end
 end
 
@@ -595,6 +638,10 @@ AddSlider("Shield Hacks", "觸發血量閾值 (Health Trigger)", 70, 10, 99, fun
     getgenv().ShieldConfig.autoEquipHealth = val
 end)
 
+AddToggle("Shield Hacks", "無視敵人盾牌 (Ignore Enemy Shields)", false, function(val)
+    ToggleIgnoreEnemyShields(val)
+end)
+
 
 -- [ Settings 設定與退出 ]
 AddButton("Settings", "Unload Script (安全清理退出)", function()
@@ -604,6 +651,7 @@ AddButton("Settings", "Unload Script (安全清理退出)", function()
     ToggleRiotAbuser(false)
     ToggleGiantShield(false)
     ToggleAutoEquip(false)
+    ToggleIgnoreEnemyShields(false)
     
     for _, c in ipairs(getgenv().ShieldConnections) do 
         pcall(function() c:Disconnect() end) 
