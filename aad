@@ -1,240 +1,657 @@
-Local fenv = getfenv()
+local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V34: WRAITH (怨靈・破甲與圖層剝離) ]] --
--- 核心 1：Shield Breaker (破甲打擊) - 本地端摧毀敵人所有護盾實體與數值。
--- 核心 2：Hierarchy Shift (圖層剝離) - 將你的角色移出 Workspace，徹底無效化敵方的全圖 AoE 鎖定。
+-- [ 初始化隨機數種子 ] --
+math.randomseed(os.time())
 
-local Players = game:GetService('Players')
+-- [ 核心服務快取 ] --
 local RunService = game:GetService('RunService')
+local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
-
+local Workspace = game:GetService('Workspace')
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
-local toggleKey = Enum.KeyCode.P
 
-local isActive = false
-local connections = {}
+-- 常數宣告 --
+local VOID_CFRAME = CFrame.new(0, -99999, 0)
+local HITBOX_SIZE = Vector3.new(60, 60, 60)
 
 -- ==========================================
--- [ GUI 建構 (怨靈幽紫風格) ]
+-- [ 終極防呆機制：強力清除所有舊版 GUI ]
+-- ==========================================
+local function ForceCleanOldGUIs()
+    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI'}
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    
+    for _, guiName in ipairs(guiNamesToDelete) do
+        if playerGui then
+            local gui = playerGui:FindFirstChild(guiName)
+            if gui then pcall(function() gui:Destroy() end) end
+        end
+        if CoreGui then
+            local gui = CoreGui:FindFirstChild(guiName)
+            if gui then pcall(function() gui:Destroy() end) end
+        end
+    end
+end
+ForceCleanOldGUIs()
+
+-- [ 狀態變數與動態連接池 ] --
+local isMasterActive = false
+local connections = {}
+local enemyConnections = {} -- 專門管理敵方動態破甲監聽，避免內存洩漏
+local originalPhysicalProperties = {}
+local originalStates = {}
+local originalFallenHeight = Workspace.FallenPartsDestroyHeight
+local lastSafeCFrame = nil
+
+-- Hitbox 還原與白名單記憶體 (使用弱引用避免內存洩漏)
+local originalSizes = setmetatable({}, {__mode = "k"})
+local originalProjSizes = setmetatable({}, {__mode = "k"})
+local myProjectiles = setmetatable({}, {__mode = "k"}) -- 我方投擲物/武器白名單
+local myCharacterParts = {} -- 本地角色部件快取優化庫
+
+-- [ 輔助函數 ] --
+local function GetHRP()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild('HumanoidRootPart')
+end
+
+local function GetHum()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild('Humanoid')
+end
+
+-- ==========================================
+-- [ 修正：安全極限 Hitbox 擴張 & 絕對破甲 ]
+-- ==========================================
+local function StripPartCollision(part)
+    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+        part.CanCollide = false
+        part.CanTouch = false
+    end
+end
+
+local function ExpandEnemyHitbox(char)
+    if not char or char == LocalPlayer.Character then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if hrp then
+        if not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
+        hrp.Size = HITBOX_SIZE
+        hrp.Transparency = 0.85
+        hrp.BrickColor = BrickColor.new("Bright red")
+        hrp.Material = Enum.Material.ForceField
+        hrp.CanCollide = false
+        hrp.CanTouch = true -- 核心必須可以被傷害
+    end
+
+    -- 【絕對破甲】剝奪敵人身上所有的裝備、盾牌、武器的碰撞與觸碰
+    for _, part in ipairs(char:GetDescendants()) do
+        StripPartCollision(part)
+    end
+end
+
+local function ExpandToolHitbox(tool)
+    if tool:IsA("Tool") then
+        myProjectiles[tool] = true -- 將武器加入白名單
+        for _, part in ipairs(tool:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name == "Handle" then
+                if not originalProjSizes[part] then originalProjSizes[part] = part.Size end
+                part.Size = HITBOX_SIZE
+                part.Transparency = 0.8
+                part.BrickColor = BrickColor.new("Cyan")
+                part.Material = Enum.Material.ForceField
+                part.Massless = true
+                part.CanCollide = false
+                part.CanTouch = true -- 【穿透機制】確保我們武器保有傷害
+                myProjectiles[part] = true -- 零件也加入白名單
+            end
+        end
+    end
+end
+
+-- 主動監聽敵方NPC/角色以達成「動態事件破甲」，取代原本耗能的每幀掃描
+local function MonitorEnemyArmorPenetration(enemyChar)
+    if not enemyChar or enemyChar == LocalPlayer.Character then return end
+    
+    ExpandEnemyHitbox(enemyChar)
+    
+    local name = enemyChar.Name
+    if enemyConnections[name] then
+        for _, c in ipairs(enemyConnections[name]) do c:Disconnect() end
+    end
+    enemyConnections[name] = {}
+    
+    -- 當敵人掏出裝備或有新部件加入時，自動瞬間剝奪判定
+    local conn = enemyChar.DescendantAdded:Connect(function(part)
+        if isMasterActive then
+            StripPartCollision(part)
+        end
+    end)
+    table.insert(enemyConnections[name], conn)
+end
+
+local function CheckAndMonitorModel(obj)
+    if obj:IsA("Model") and obj ~= LocalPlayer.Character and obj:FindFirstChild("Humanoid") then
+        MonitorEnemyArmorPenetration(obj)
+    end
+end
+
+-- ==========================================
+-- [ 本地部件快取系統管理 ]
+-- ==========================================
+local function UpdateLocalCharacterCache(char)
+    table.clear(myCharacterParts)
+    if not char then return end
+    
+    local function registerPart(part)
+        if part:IsA("BasePart") then
+            if not table.find(myCharacterParts, part) then
+                table.insert(myCharacterParts, part)
+            end
+            -- 如果功能已開啟，即時套用屬性
+            if isMasterActive then
+                if not originalPhysicalProperties[part] then
+                    originalPhysicalProperties[part] = part.CustomPhysicalProperties
+                end
+                part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
+                part.CanCollide = false
+                if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
+                    part.CanTouch = true
+                else
+                    part.CanTouch = false
+                end
+                part.Massless = true
+            end
+        end
+    end
+
+    for _, desc in ipairs(char:GetDescendants()) do
+        registerPart(desc)
+    end
+
+    connections.CharDescAdded = char.DescendantAdded:Connect(registerPart)
+    connections.CharDescRemoving = char.DescendantRemoving:Connect(function(part)
+        local idx = table.find(myCharacterParts, part)
+        if idx then table.remove(myCharacterParts, idx) end
+    end)
+end
+
+-- ==========================================
+-- [ 單次防禦屬性套用 (因應重生自動恢復) ]
+-- ==========================================
+local function ApplyOneTimeSetups(char)
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 3)
+    local hrp = char:WaitForChild("HumanoidRootPart", 3)
+    
+    if not isMasterActive then return end
+
+    -- [ 防禦 1：網路休眠 (隱身於物理演算) ]
+    if hrp then
+        pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
+        lastSafeCFrame = hrp.CFrame
+    end
+
+    -- [ 防禦 2：神級狀態與血量強制鎖定 ]
+    if hum then
+        hum.MaxHealth = math.huge
+        hum.Health = math.huge
+        
+        if connections.HealthLock then connections.HealthLock:Disconnect() end
+        -- 嚴格監聽血量變化
+        connections.HealthLock = hum:GetPropertyChangedSignal("Health"):Connect(function()
+            if hum.Health < hum.MaxHealth and isMasterActive then
+                hum.Health = hum.MaxHealth
+            end
+        end)
+
+        local badStates = {
+            Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Ragdoll,
+            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics,
+            Enum.HumanoidStateType.PlatformStanding, Enum.HumanoidStateType.Stunned,
+            Enum.HumanoidStateType.Seated
+        }
+        for _, s in ipairs(badStates) do
+            if originalStates[s] == nil then originalStates[s] = hum:GetStateEnabled(s) end
+            hum:SetStateEnabled(s, false)
+        end
+    end
+
+    -- 裝備武器時自動放大武器判定並加入白名單
+    if connections.ToolEquip then connections.ToolEquip:Disconnect() end
+    connections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
+    for _, tool in ipairs(char:GetChildren()) do
+        ExpandToolHitbox(tool)
+    end
+
+    -- 啟用本地部件高速快取
+    UpdateLocalCharacterCache(char)
+end
+
+-- ==========================================
+-- [ 角色重生監聽 ]
+-- ==========================================
+LocalPlayer.CharacterAdded:Connect(function(char)
+    originalPhysicalProperties = {}
+    if isMasterActive then
+        task.spawn(function()
+            task.wait(0.2)
+            ApplyOneTimeSetups(char)
+        end)
+    end
+end)
+
+-- ==========================================
+-- [ 極簡 UI 介面設計 - 一鍵啟動版 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV34GUI'
+ScreenGui.Name = 'OblivionProtocolGUI'
 ScreenGui.ResetOnSpawn = false
-pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
-if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999999
+
+local success, core = pcall(function() return game:GetService("CoreGui") end)
+ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 330, 0, 320)
-MainFrame.Position = UDim2.new(0.85, -60, 0.75, -130)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 5, 20)
+MainFrame.Size = UDim2.new(0, 240, 0, 95)
+MainFrame.Position = UDim2.new(0.5, -120, 0.5, -45)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true 
 MainFrame.Parent = ScreenGui
 
-local MainCorner = Instance.new('UICorner', MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 6)
+local UICorner = Instance.new('UICorner')
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
 
-local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(180, 0, 255)
-MainStroke.Thickness = 2
+local UIStroke = Instance.new('UIStroke')
+UIStroke.Color = Color3.fromRGB(0, 255, 170)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
 
-local TitleText = Instance.new('TextLabel', MainFrame)
-TitleText.Size = UDim2.new(1, 0, 0, 30)
-TitleText.BackgroundTransparency = 1
-TitleText.Text = '👻 V34 WRAITH (ARMOR PIERCER)'
-TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
-TitleText.TextSize = 15
-TitleText.Font = Enum.Font.GothamBlack
-TitleText.Parent = MainFrame
+local TopBar = Instance.new('Frame')
+TopBar.Size = UDim2.new(1, 0, 0, 30)
+TopBar.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
 
-local StatusText = Instance.new('TextLabel', MainFrame)
-StatusText.Size = UDim2.new(1, 0, 0, 20)
-StatusText.Position = UDim2.new(0, 0, 0, 35)
-StatusText.BackgroundTransparency = 1
-StatusText.Text = 'WRAITH MODE: DISABLED'
-StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-StatusText.TextSize = 12
-StatusText.Font = Enum.Font.GothamBold
-StatusText.Parent = MainFrame
+local TopBarFix = Instance.new('Frame')
+TopBarFix.Size = UDim2.new(1, 0, 0, 10)
+TopBarFix.Position = UDim2.new(0, 0, 1, -10)
+TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
+TopBarFix.BorderSizePixel = 0
+TopBarFix.Parent = TopBar
 
-local ToggleBtn = Instance.new('TextButton', MainFrame)
-ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
-ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
-ToggleBtn.Text = 'ENGAGE WRAITH [P]'
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.TextSize = 14
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.Parent = MainFrame
-Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
+local Title = Instance.new('TextLabel')
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = '⚡ OBLIVION: ANNIHILATION'
+Title.TextColor3 = Color3.fromRGB(180, 255, 220)
+Title.TextSize = 13
+Title.Font = Enum.Font.GothamBold
+Title.Parent = TopBar
 
-local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 190)
-StatsText.Position = UDim2.new(0.1, 0, 0, 115)
-StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Enemy Shields Eradicated (Local)\n[✓] Projectiles Ignore Armor\n[✓] Workspace Hierarchy Shift\n[✓] AoE & Raycast Invisibility\n\nYour attacks now pierce all shields.\nYour body no longer exists in Workspace.\nEnemy scripts cannot target you.'
-StatsText.TextColor3 = Color3.fromRGB(180, 120, 255)
-StatsText.TextSize = 11
-StatsText.TextXAlignment = Enum.TextXAlignment.Left
-StatsText.Font = Enum.Font.Code
-StatsText.Parent = MainFrame
+local MasterButton = Instance.new('TextButton')
+MasterButton.Size = UDim2.new(1, -20, 0, 40)
+MasterButton.Position = UDim2.new(0, 10, 0, 40)
+MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
+MasterButton.BorderSizePixel = 0
+MasterButton.Text = 'ACTIVATE NULLIFICATION'
+MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MasterButton.TextSize = 12
+MasterButton.Font = Enum.Font.GothamBold
+MasterButton.Parent = MainFrame
+Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
+
+-- [ 拖曳功能優化：動態資源節約監聽 ]
+local dragging, dragInput, dragStart, startPos
+local dragConnection
+
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        -- 僅在拖拽進行時開啟滑鼠變更全域監聽，節省運算效能
+        if dragConnection then dragConnection:Disconnect() end
+        dragConnection = UserInputService.InputChanged:Connect(function(changedInput)
+            if changedInput == dragInput and dragging then
+                local delta = changedInput.Position - dragStart
+                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        local changer
+        changer = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then 
+                dragging = false 
+                if dragConnection then
+                    dragConnection:Disconnect()
+                    dragConnection = nil
+                end
+                if changer then changer:Disconnect() end
+            end
+        end)
+    end
+end)
+
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
 
 -- ==========================================
--- [ 核心 1：破甲打擊 (Armor Piercing) ]
+-- [ 核心邏輯：絕對防禦 + 殲滅判定全開 ]
 -- ==========================================
-local function StripEnemyShields()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local enemyChar = player.Character
+local function ToggleAll()
+    isMasterActive = not isMasterActive
+    local state = isMasterActive
 
-            -- 1. 摧毀官方 ForceField
-            local ff = enemyChar:FindFirstChildOfClass("ForceField")
-            if ff then ff:Destroy() end
+    if state then
+        MasterButton.Text = 'DEACTIVATE'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
+        UIStroke.Color = Color3.fromRGB(255, 60, 80)
+        TopBar.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+        Title.TextColor3 = Color3.fromRGB(255, 180, 180)
+    else
+        MasterButton.Text = 'ACTIVATE NULLIFICATION'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 160, 100)
+        UIStroke.Color = Color3.fromRGB(0, 255, 170)
+        TopBar.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 40, 30)
+        Title.TextColor3 = Color3.fromRGB(180, 255, 220)
+    end
 
-            -- 2. 徹底無效化所有客製化盾牌部件與屬性
-            for _, obj in ipairs(enemyChar:GetDescendants()) do
-                local name = obj.Name:lower()
+    -- 清除舊連接（保留快取更新連線）
+    for key, conn in pairs(connections) do
+        if conn and key ~= "CharDescAdded" and key ~= "CharDescRemoving" then 
+            conn:Disconnect() 
+        end
+    end
+    connections = {}
+
+    -- 清除所有敵方的即時監聽器
+    for name, conns in pairs(enemyConnections) do
+        for _, c in ipairs(conns) do c:Disconnect() end
+    end
+    enemyConnections = {}
+
+    if state then
+        ApplyOneTimeSetups(LocalPlayer.Character)
+
+        -- [ 防禦 3：世界底線突破 (免疫虛空秒殺) ]
+        pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
+
+        -- [ 防禦 4：環境武裝解除 (拆除秒殺磚與爆炸) ]
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("TouchTransmitter") then obj:Destroy() end
+        end
+
+        -- [ 防禦 5：真・反綁架錨點 (Anti-Bring & Anchor) + 虛空折返 ]
+        connections.AntiBring = RunService.RenderStepped:Connect(function()
+            local hrp = GetHRP()
+            if hrp then
+                if lastSafeCFrame then
+                    local distance = (hrp.Position - lastSafeCFrame.Position).Magnitude
+                    if hrp.Position.Y < -500 then
+                        hrp.CFrame = lastSafeCFrame + Vector3.new(0, 50, 0)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                    elseif distance > 150 then
+                        hrp.CFrame = lastSafeCFrame
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                    else
+                        lastSafeCFrame = hrp.CFrame
+                    end
+                else
+                    lastSafeCFrame = hrp.CFrame
+                end
+                if hrp.Anchored then hrp.Anchored = false end
+            end
+        end)
+
+        -- [ 防禦 6：引擎級虛無化 + 不擇手段的絕對領域 ]
+        connections.PhysicsStepped = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            
+            -- 優化：利用預先抓取的快取陣列，取代每幀高內耗的 GetDescendants() 遍歷
+            for i = 1, #myCharacterParts do
+                local part = myCharacterParts[i]
+                if part and part.Parent then
+                    if not originalPhysicalProperties[part] then
+                        originalPhysicalProperties[part] = part.CustomPhysicalProperties
+                    end
+                    part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
+                    part.CanCollide = false
+                    
+                    -- 【關鍵修復】保留自己手部與武器的觸碰判定，否則自己無法攻擊！
+                    if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
+                        part.CanTouch = true
+                    else
+                        part.CanTouch = false
+                    end
+                    part.Massless = true
+                end
+            end
+            
+            -- 確保自己不受動能影響
+            local hrp = char:FindFirstChild('HumanoidRootPart')
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
                 
-                -- 如果發現名字包含 shield (盾), armor (甲), protect (保護) 的東西
-                if name:match("shield") or name:match("armor") or name:match("protect") or name:match("barrier") then
-                    if obj:IsA("BasePart") then
-                        -- 不直接刪除(怕破壞他們骨架)，但剝奪所有物理與判定
-                        pcall(function()
-                            obj.CanCollide = false
-                            obj.CanTouch = false
-                            obj.CanQuery = false -- 你的射線/投擲物將直接穿透它！
-                            obj.Transparency = 1
-                            obj.Size = Vector3.new(0.01, 0.01, 0.01)
-                        end)
-                    elseif obj:IsA("ValueBase") then
-                        -- 如果是數值類型的護盾(例如 Health.Shield.Value = 100)，強制作廢
-                        pcall(function() obj.Value = 0 end)
+                -- 【不擇手段的絕對領域】粉碎半徑 20 內的威脅
+                local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 20)
+                for j = 1, #nearbyParts do
+                    local part = nearbyParts[j]
+                    if part:IsA("BasePart") and not part:IsDescendantOf(char) and not part.Anchored then
+                        -- 【白名單過濾】如果是我們的投擲物，領域將會放行
+                        if not myProjectiles[part] and not myProjectiles[part.Parent] then
+                            part.AssemblyLinearVelocity = Vector3.zero
+                            part.AssemblyAngularVelocity = Vector3.zero
+                            part.CanCollide = false
+                            part.CanTouch = false
+                            -- 【直接抹消】連擋路都不給，把敵方投擲物強制傳送到地底虛空
+                            pcall(function() part.CFrame = VOID_CFRAME end)
+                        end
                     end
                 end
             end
-
-            -- 3. 駭入 Attributes (有些遊戲把護盾寫在屬性裡)
-            pcall(function()
-                if enemyChar:GetAttribute("Shield") or enemyChar:GetAttribute("Armor") then
-                    enemyChar:SetAttribute("Shield", 0)
-                    enemyChar:SetAttribute("Armor", 0)
-                end
-            end)
-        end
-    end
-end
-
--- ==========================================
--- [ 核心 2：圖層剝離 (Hierarchy Shift) ]
--- ==========================================
-local function ShiftDimension(char)
-    if not char then return end
-    
-    -- 【神級防禦技巧】：將你的角色從 Workspace 移到 Camera
-    -- 對手的範圍爆破(AoE)外掛通常會寫：`for _, v in pairs(workspace:GetChildren())`
-    -- 當你躲在 Camera 裡時，他們的外掛腳本「在物理圖層上」根本找不到你，直接報錯失效。
-    if char.Parent ~= workspace.CurrentCamera then
-        pcall(function()
-            char.Parent = workspace.CurrentCamera
         end)
-    end
-    
-    -- 雙重保險：關閉所有部位的射線判定
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            pcall(function()
-                part.CanQuery = false
-                part.CanTouch = false
-            end)
+
+        -- [ 防禦 7：心跳級免疫外部寄生、反控場、持續防禦機制 ]
+        connections.AntiAttach = RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if char then
+                local hrp = char:FindFirstChild('HumanoidRootPart')
+                local hum = char:FindFirstChild('Humanoid')
+                
+                local cam = Workspace.CurrentCamera
+                if cam and hum and cam.CameraSubject ~= hum then
+                    cam.CameraSubject = hum
+                    cam.CameraType = Enum.CameraType.Custom
+                end
+
+                if hrp then
+                    for _, v in ipairs(hrp:GetChildren()) do
+                        if v:IsA("BodyModifier") or v:IsA("BodyPosition") or v:IsA("BodyVelocity") or v:IsA("BodyGyro") or v:IsA("AngularVelocity") or v:IsA("LinearVelocity") or v:IsA("RocketPropulsion") then
+                            v:Destroy()
+                        end
+                    end
+                end
+
+                for _, obj in ipairs(char:GetChildren()) do
+                    if obj:IsA("Weld") or obj:IsA("WeldConstraint") or obj:IsA("Motor6D") then
+                        if (obj.Part0 and not obj.Part0:IsDescendantOf(char)) or (obj.Part1 and not obj.Part1:IsDescendantOf(char)) then 
+                            obj:Destroy() 
+                        end
+                    elseif obj:IsA("SeatWeld") then
+                        obj:Destroy()
+                    end
+                end
+                
+                if hum then
+                    if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
+                    if hum.Sit then hum.Sit = false end
+                    if hum.PlatformStand then hum.PlatformStand = false end
+                end
+            end
+        end)
+
+        -- ==========================================
+        -- [ 殲滅 8：全體敵人/NPC Hitbox 與 投擲物極限化 ]
+        -- ==========================================
+        -- 啟動時一次性掃描並對場上所有現存敵人建立高效率即時主動破甲
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            CheckAndMonitorModel(obj)
         end
-    end
-end
 
-local function StartWraith()
-    local char = LocalPlayer.Character
-    if not char then return end
+        connections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
+            if not isMasterActive then return end
 
-    -- 啟動高頻掃描，確保敵人的盾牌一長出來就瞬間破壞，且確保你一直藏在 Camera 中
-    local loop = RunService.Heartbeat:Connect(function()
-        if not isActive then return end
-        
-        -- 進攻：破甲
-        StripEnemyShields()
-        
-        -- 防守：躲避掃描
-        local currentChar = LocalPlayer.Character
-        if currentChar then
-            ShiftDimension(currentChar)
-        end
-    end)
-    table.insert(connections, loop)
-end
+            if obj:IsA("Explosion") or obj:IsA("TouchTransmitter") then
+                task.defer(function() pcall(obj.Destroy, obj) end)
+                return
+            end
 
-local function StopWraith()
-    for _, conn in ipairs(connections) do
-        conn:Disconnect()
-    end
-    connections = {}
-    
-    local char = LocalPlayer.Character
-    if char then
-        -- 將角色放回 Workspace，恢復正常狀態
-        pcall(function() char.Parent = workspace end)
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                pcall(function()
-                    part.CanQuery = true
-                    part.CanTouch = true
+            if obj:IsA("Model") then
+                task.delay(0.5, function()
+                    if isMasterActive then CheckAndMonitorModel(obj) end
                 end)
             end
+
+            -- 掃描自我投擲物並加入白名單
+            if obj:IsA("BasePart") then
+                local hrp = GetHRP()
+                if hrp then
+                    task.defer(function()
+                        if obj and obj.Parent and not obj.Anchored and not obj:IsDescendantOf(LocalPlayer.Character) then
+                            local distance = (obj.Position - hrp.Position).Magnitude
+                            -- 生成在你身邊的投擲物，高機率是你的攻擊
+                            if distance < 25 then
+                                myProjectiles[obj] = true -- 【加入白名單】
+                                if not originalProjSizes[obj] then originalProjSizes[obj] = obj.Size end
+                                obj.Size = HITBOX_SIZE
+                                obj.Transparency = 0.5
+                                obj.BrickColor = BrickColor.new("Cyan")
+                                obj.Material = Enum.Material.ForceField
+                                obj.CanCollide = false
+                                obj.CanTouch = true -- 確保有傷害
+                                pcall(function() obj.CanQuery = true end)
+                                obj.Massless = true
+                            end
+                        end
+                    end)
+                end
+            end
+        end)
+
+        -- 玩家即時追蹤機制
+        local function HookPlayer(plr)
+            if plr == LocalPlayer then return end
+            local function onCharAdded(char)
+                task.delay(0.5, function()
+                    if isMasterActive then MonitorEnemyArmorPenetration(char) end
+                end)
+            end
+            connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(onCharAdded)
+            if plr.Character then onCharAdded(plr.Character) end
         end
-    end
-end
 
--- ==========================================
--- [ UI 與控制邏輯 ]
--- ==========================================
-local isHovering = false
+        for _, plr in ipairs(Players:GetPlayers()) do
+            HookPlayer(plr)
+        end
+        
+        connections.NewPlayer = Players.PlayerAdded:Connect(HookPlayer)
 
-local function UpdateUI()
-    if isActive then
-        StatusText.Text = 'WRAITH MODE: ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(180, 0, 255)
-        MainStroke.Color = Color3.fromRGB(180, 0, 255)
-        ToggleBtn.Text = 'DISENGAGE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 120) or Color3.fromRGB(60, 0, 90)
+        -- 記憶體釋放優化：當玩家離開時移除排程連線與緩存，防範長期記憶體溢出
+        connections.PlayerLeft = Players.PlayerRemoving:Connect(function(plr)
+            local key = "Plr_"..plr.Name
+            if connections[key] then
+                connections[key]:Disconnect()
+                connections[key] = nil
+            end
+            if enemyConnections[plr.Name] then
+                for _, c in ipairs(enemyConnections[plr.Name]) do c:Disconnect() end
+                enemyConnections[plr.Name] = nil
+            end
+        end)
+
     else
-        StatusText.Text = 'WRAITH MODE: DISABLED'
-        StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE WRAITH [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 10, 80) or Color3.fromRGB(40, 10, 60)
+        -- [ 關閉狀態：還原所有屬性與環境 ]
+        local char = LocalPlayer.Character
+        local hum = GetHum()
+        local hrp = GetHRP()
+        
+        pcall(function() Workspace.FallenPartsDestroyHeight = originalFallenHeight end)
+
+        if hum then
+            for stateType, isEnabled in pairs(originalStates) do
+                hum:SetStateEnabled(stateType, isEnabled)
+            end
+        end
+
+        if char then
+            for part, props in pairs(originalPhysicalProperties) do
+                if part and part.Parent then part.CustomPhysicalProperties = props end
+            end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanTouch = true end
+            end
+        end
+
+        for part, size in pairs(originalSizes) do
+            if part and part.Parent then
+                part.Size = size
+                part.Transparency = 1
+                part.Material = Enum.Material.Plastic
+            end
+        end
+        for part, size in pairs(originalProjSizes) do
+            if part and part.Parent then
+                part.Size = size
+                part.Transparency = 0 
+                part.Material = Enum.Material.Plastic
+            end
+        end
+
+        -- 徹底重設重置變數與緩存結構
+        originalPhysicalProperties = {}
+        originalStates = {}
+        originalSizes = setmetatable({}, {__mode = "k"})
+        originalProjSizes = setmetatable({}, {__mode = "k"})
+        myProjectiles = setmetatable({}, {__mode = "k"}) -- 清空白名單
+        table.clear(myCharacterParts)
+        lastSafeCFrame = nil
+        
+        pcall(function() if hrp then sethiddenproperty(hrp, "NetworkIsSleeping", false) end end)
     end
 end
 
-local function ToggleSystem()
-    isActive = not isActive
-    UpdateUI()
-    if isActive then StartWraith() else StopWraith() end
-end
-
-ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
-ToggleBtn.MouseLeave:Connect(function() isHovering = false UpdateUI() end)
-ToggleBtn.MouseButton1Click:Connect(ToggleSystem)
+-- ==========================================
+-- [ 事件綁定 ]
+-- ==========================================
+MasterButton.MouseButton1Click:Connect(ToggleAll)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == toggleKey then
-        ToggleSystem()
+    if not gameProcessed then
+        if input.KeyCode == Enum.KeyCode.P then
+            ToggleAll()
+        elseif input.KeyCode == Enum.KeyCode.RightShift then
+            MainFrame.Visible = not MainFrame.Visible
+        end
     end
 end)
 
-LocalPlayer.CharacterAdded:Connect(function()
-    if isActive then
-        task.wait(0.5)
-        StartWraith()
-    end
-end)
-
+-- 如果本地已有角色，立即為其建立動態部件監聽器快取
+if LocalPlayer.Character then
+    UpdateLocalCharacterCache(LocalPlayer.Character)
+end
