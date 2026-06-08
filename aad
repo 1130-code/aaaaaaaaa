@@ -12,17 +12,8 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 if getgenv().meoww_loaded then return end
 getgenv().meoww_loaded = true
 
--- [ 隨機數與反分析 ] --
+-- [ 隨機數初始化 ] --
 math.randomseed(os.time())
-task.spawn(function()
-    pcall(function()
-        for _, v in pairs(getgc()) do
-            if type(v) == "function" and debug.info(v, "s"):find("AnalyticsPipelineController") then
-                hookfunction(v, function() end)
-            end
-        end
-    end)
-end)
 
 -- [ 核心服務快取 ] --
 local Players = game:GetService("Players")
@@ -180,7 +171,10 @@ local function ApplyOblivionSetups(char)
     if not isOblivionActive then return end
 
     if hrp then
-        pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
+        -- 修正：加入 sethiddenproperty 存在性檢測，防止執行器崩潰
+        if sethiddenproperty then
+            pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
+        end
         lastSafeCFrame = hrp.CFrame
     end
 
@@ -328,9 +322,11 @@ end
 
 local oldFireServer
 local function applyDaggerBypass()
-    if oldFireServer then return end
+    -- 修正：加入 hookfunction 安全性檢測與保護
+    if oldFireServer or not hookfunction then return end
     pcall(function()
-        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
+        local tempEvent = Instance.new("RemoteEvent")
+        oldFireServer = hookfunction(tempEvent.FireServer, newcclosure(function(self, ...)
             if not checkcaller() and getgenv().config.daggerBypass then
                 local n = self.Name:lower()
                 if (n:find("dagger") or n:find("knife") or n:find("throw") or n:find("blade")) then
@@ -438,9 +434,16 @@ local function ToggleOblivion(forceState)
         ApplyOblivionSetups(LocalPlayer.Character)
         pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("TouchTransmitter") then obj:Destroy() end
-        end
+        -- 修正：分流異步處理 TouchTransmitter 清理，避免超時崩潰
+        task.spawn(function()
+            local descendants = Workspace:GetDescendants()
+            for i, obj in ipairs(descendants) do
+                if obj:IsA("TouchTransmitter") then 
+                    pcall(function() obj:Destroy() end) 
+                end
+                if i % 100 == 0 then task.wait() end -- 每處理100個元件讓出一次時間
+            end
+        end)
 
         -- 反綁架與高頻位置折返
         oblivionConnections.AntiBring = RunService.RenderStepped:Connect(function()
@@ -464,7 +467,7 @@ local function ToggleOblivion(forceState)
             end
         end)
 
-        -- 物理碰撞虛無化 + 絕對抹消領域（半徑 20）
+        -- 物理碰撞虛無化 + 絕對抹消領域（半鍵 20）
         oblivionConnections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if not char then return end
@@ -546,8 +549,14 @@ local function ToggleOblivion(forceState)
             end
         end)
 
-        -- 即時監聽與判定破甲擴展
-        for _, obj in ipairs(Workspace:GetDescendants()) do CheckAndMonitorModel(obj) end
+        -- 修正：非阻塞式的異步掃描與安全破甲處理（防止超時崩潰）
+        task.spawn(function()
+            local descendants = Workspace:GetDescendants()
+            for i, obj in ipairs(descendants) do
+                CheckAndMonitorModel(obj)
+                if i % 100 == 0 then task.wait() end -- 釋放主線程時間，防凍結崩潰
+            end
+        end)
 
         oblivionConnections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
             if not isOblivionActive then return end
@@ -641,7 +650,10 @@ local function ToggleOblivion(forceState)
         myProjectiles = setmetatable({}, {__mode = "k"})
         table.clear(myCharacterParts)
         lastSafeCFrame = nil
-        pcall(function() if hrp then sethiddenproperty(hrp, "NetworkIsSleeping", false) end end)
+        -- 修正：sethiddenproperty 環境保護
+        if sethiddenproperty then
+            pcall(function() if hrp then sethiddenproperty(hrp, "NetworkIsSleeping", false) end end)
+        end
     end
 end
 
